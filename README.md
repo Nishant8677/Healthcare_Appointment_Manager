@@ -5,9 +5,9 @@ and describe their symptoms up front; the doctor gets an AI-generated pre-visit 
 urgency level; after the visit the patient gets a plain-language summary with a medication
 schedule. Both sides stay informed through email and Google Calendar.
 
-> **Status: Phase 1 complete** — foundation, the full database schema, and role-based
-> authentication for patients, doctors and admins. Booking arrives in Phase 3; see
-> [Roadmap](#roadmap) below.
+> **Status: Phase 2 complete** — foundation, the full database schema, role-based
+> authentication, and admin management of doctors, their weekly availability and their
+> leave. Booking arrives in Phase 3; see [Roadmap](#roadmap) below.
 
 ---
 
@@ -112,6 +112,19 @@ uv run uvicorn app.main:create_app --factory --reload
 The API is then at <http://localhost:8000>, with interactive documentation at
 <http://localhost:8000/docs>.
 
+### Create the first admin
+
+Admins deliberately cannot self-register, and only an admin can create doctor accounts — so
+the first one is created from the command line. The password is read from the environment
+rather than a flag, so it stays out of shell history and process listings.
+
+```bash
+ADMIN_PASSWORD='choose-a-strong-password' uv run python -m app.cli create-admin --email admin@clinic.example.com --name "Clinic Ops"
+```
+
+You can then sign in at `/auth/login` with that address and manage doctors under
+`/admin/doctors`.
+
 ### Verify it is working
 
 ```bash
@@ -140,9 +153,30 @@ Interactive documentation is generated from the code at
 | `POST` | `/auth/register` | public | Create a patient account. Always a patient — the role is never taken from the request. |
 | `POST` | `/auth/login` | public | Exchange credentials for a bearer token. |
 | `GET` | `/auth/me` | any signed-in user | The current user. |
+| `POST` | `/admin/doctors` | admin | Create a doctor's login and clinic profile together. |
+| `GET` | `/admin/doctors` | admin | List doctors; filter by `specialisation`, optionally `include_inactive`. |
+| `GET` | `/admin/doctors/{id}` | admin | One doctor with their schedule and leave. |
+| `PATCH` | `/admin/doctors/{id}` | admin | Change specialisation, name, slot duration or active status. |
+| `PUT` | `/admin/doctors/{id}/working-hours` | admin | Replace the complete weekly schedule. |
+| `POST` | `/admin/doctors/{id}/leave` | admin | Record a leave day. |
+| `DELETE` | `/admin/doctors/{id}/leave/{leave_id}` | admin | Remove a leave day. |
 
 Doctor and admin accounts are created by an admin rather than by self-registration, so
 `/auth/register` cannot be used to obtain elevated access.
+
+### Scheduling rules
+
+Working hours are validated as a complete week, not window by window, and rejected requests
+explain how to fix them:
+
+```json
+{"detail": "Monday 09:00-17:00 is 480 minutes, which is not a whole number of 45-minute appointments. Try ending at 16:30 or 17:15."}
+```
+
+A working window must divide exactly into whole appointments, windows on the same weekday
+may touch but not overlap, and changing a doctor's slot duration re-validates their existing
+schedule rather than silently stranding part of every working day. The reasoning is in
+[ADR 0003](docs/adr/0003-doctor-management-and-scheduling-rules.md).
 
 ---
 
@@ -222,7 +256,7 @@ frontend/             React SPA (Phase 8)
       request correlation, health probes, migrations, lint/type/test tooling.
 - [x] **Phase 1** — Authentication and the full data model; role-based access for
       patient / doctor / admin.
-- [ ] **Phase 2** — Admin doctor management: specialisation, working hours, slot duration, leave.
+- [x] **Phase 2** — Admin doctor management: specialisation, working hours, slot duration, leave.
 - [ ] **Phase 3** — Availability and booking: slot generation, hold-then-confirm, double-booking
       prevention with a concurrent-request test.
 - [ ] **Phase 4** — Notification outbox and email delivery with capped retries.

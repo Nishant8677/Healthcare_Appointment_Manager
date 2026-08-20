@@ -53,13 +53,17 @@ class DoctorProfile(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     user: Mapped[User] = relationship(back_populates="doctor_profile")
+    # Ordered in the relationship so every caller sees the week in a predictable sequence
+    # without re-sorting; row order from the database is otherwise arbitrary.
     working_hours: Mapped[list[DoctorWorkingHours]] = relationship(
         back_populates="doctor_profile",
         cascade="all, delete-orphan",
+        order_by="[DoctorWorkingHours.weekday, DoctorWorkingHours.start_time]",
     )
     leave_days: Mapped[list[DoctorLeaveDay]] = relationship(
         back_populates="doctor_profile",
         cascade="all, delete-orphan",
+        order_by="DoctorLeaveDay.leave_date",
     )
     appointments: Mapped[list[Appointment]] = relationship(back_populates="doctor_profile")
 

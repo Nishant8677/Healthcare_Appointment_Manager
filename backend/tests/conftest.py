@@ -194,6 +194,22 @@ async def make_doctor(db_session: AsyncSession, make_user: MakeUser) -> MakeDoct
     return _make
 
 
+@pytest_asyncio.fixture
+async def admin_headers(
+    make_user: MakeUser, auth_header: Callable[[User], dict[str, str]]
+) -> dict[str, str]:
+    """Authorization header for a freshly created admin."""
+    return auth_header(await make_user(role=UserRole.ADMIN))
+
+
+@pytest_asyncio.fixture
+async def patient_headers(
+    make_user: MakeUser, auth_header: Callable[[User], dict[str, str]]
+) -> dict[str, str]:
+    """Authorization header for a freshly created patient."""
+    return auth_header(await make_user(role=UserRole.PATIENT))
+
+
 @pytest.fixture
 def auth_header(settings: Settings) -> Callable[[User], dict[str, str]]:
     """Build an Authorization header for a user, without going through login."""

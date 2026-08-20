@@ -26,3 +26,23 @@ class InvalidCredentials(DomainError):
 
 class InactiveAccount(DomainError):
     """The account exists but has been deactivated."""
+
+
+class DoctorNotFound(DomainError):
+    """No doctor profile with that id."""
+
+
+class InvalidSchedule(DomainError):
+    """A working-hours or leave configuration that cannot be honoured.
+
+    Carries a message written for the admin who has to fix it — which window clashes, or
+    what end time would divide evenly — rather than a bare rule name.
+    """
+
+
+class DuplicateLeaveDay(DomainError):
+    """That date is already recorded as leave for this doctor."""
+
+
+class LeaveDayNotFound(DomainError):
+    """No leave day with that id for this doctor."""
