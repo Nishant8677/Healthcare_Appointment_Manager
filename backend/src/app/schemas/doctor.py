@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, time
+from datetime import date, datetime, time
 
 from pydantic import BaseModel, EmailStr, Field, SecretStr, field_validator, model_validator
 
@@ -94,6 +94,13 @@ class WorkingHoursReplaceRequest(BaseModel):
 class LeaveDayCreateRequest(BaseModel):
     leave_date: date
     reason: str | None = Field(default=None, max_length=255)
+    cancel_existing_appointments: bool = Field(
+        default=False,
+        description=(
+            "Required when patients are already booked that day. Without it the request is "
+            "refused and nothing changes, so appointments are never cancelled by accident."
+        ),
+    )
 
 
 class WorkingHoursResponse(BaseModel):
@@ -107,6 +114,30 @@ class LeaveDayResponse(BaseModel):
     id: uuid.UUID
     leave_date: date
     reason: str | None
+
+
+class AffectedAppointment(BaseModel):
+    """One booking that a leave day would cancel."""
+
+    appointment_id: uuid.UUID
+    patient_name: str
+    patient_email: EmailStr
+    starts_at: datetime
+    status: str
+
+
+class LeaveImpactResponse(BaseModel):
+    """What recording leave on this date would do, before anything is changed."""
+
+    doctor_id: uuid.UUID
+    leave_date: date
+    affected_count: int
+    appointments: list[AffectedAppointment]
+
+
+class LeaveRecordedResponse(LeaveDayResponse):
+    cancelled_appointments: int
+    patients_notified: int
 
 
 class DoctorResponse(BaseModel):

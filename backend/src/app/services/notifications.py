@@ -181,6 +181,40 @@ def enqueue_cancellation(
         )
 
 
+def enqueue_leave_conflict(
+    session: AsyncSession,
+    *,
+    appointment: Appointment,
+    patient: User,
+    doctor: DoctorProfile,
+    zone: ZoneInfo,
+    now: datetime | None = None,
+) -> None:
+    """Tell a patient their appointment is off because the doctor is away.
+
+    Only the patient is told. The doctor is the one who booked the leave, so a message per
+    cancelled appointment would be a stack of notifications about something they just did.
+    """
+    reference = now or datetime.now(UTC)
+    payload = _appointment_payload(
+        appointment=appointment,
+        patient=patient,
+        doctor=doctor,
+        zone=zone,
+        # Carried so the message can point at rebooking with the same doctor.
+        extra={"doctor_profile_id": str(doctor.id)},
+    )
+
+    enqueue(
+        session,
+        notification_type=NotificationType.LEAVE_CONFLICT,
+        recipient=patient,
+        payload=payload,
+        scheduled_for=reference,
+        appointment_id=appointment.id,
+    )
+
+
 async def drop_pending_reminders(session: AsyncSession, appointment_id: uuid.UUID) -> None:
     """Remove reminders for an appointment that is no longer happening.
 
@@ -300,7 +334,9 @@ def _render_leave_conflict(payload: dict[str, Any], recipient_name: str) -> tupl
         f"Hello {recipient_name},\n\n"
         f"{payload.get('doctor_name', 'Your doctor')} is unavailable on the day of your "
         f"appointment ({payload.get('starts_at_local', '')}), so it has been cancelled.\n\n"
-        "Please book another time that suits you.\n\n"
+        "We are sorry for the disruption. Please book another time that suits you — "
+        f"{payload.get('doctor_name', 'they')} is available on other days, and other "
+        f"{payload.get('specialisation', 'clinic')} doctors may have earlier openings.\n\n"
         "The Clinic",
     )
 

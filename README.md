@@ -5,9 +5,10 @@ and describe their symptoms up front; the doctor gets an AI-generated pre-visit 
 urgency level; after the visit the patient gets a plain-language summary with a medication
 schedule. Both sides stay informed through email and Google Calendar.
 
-> **Status: Phase 4 complete** — foundation, schema, authentication, doctor management,
-> booking with proven double-booking prevention, and a transactional notification outbox
-> that survives the email provider being down. See [Roadmap](#roadmap).
+> **Status: Phase 5 complete** — foundation, schema, authentication, doctor management,
+> booking with proven double-booking prevention, a transactional notification outbox, and
+> the doctor-leave cascade that cancels and notifies affected patients atomically. See
+> [Roadmap](#roadmap).
 
 ---
 
@@ -19,7 +20,7 @@ The hard parts of this system are not the CRUD screens; they are the failure mod
 | --- | --- |
 | Two patients booking the same slot at once | A partial unique index decides the race — a row lock cannot, because the contended row does not exist yet. Proven by a test firing 20 simultaneous requests at one slot |
 | A patient losing their slot while filling the symptom form | Short-lived `HELD` reservation; an expired hold is reclaimed at booking time, so no sweeper job is needed |
-| A doctor going on leave over existing bookings | Cascade that cancels, notifies every affected patient and cleans up calendar events |
+| A doctor going on leave over existing bookings | One transaction cancels every affected appointment and queues a notice for each patient. Refused outright unless the admin acknowledges the count, so it can never happen by accident |
 | Email or calendar provider being down | Transactional outbox: a notification is a row committed *with* the booking, delivered later by a worker with capped backoff. Nothing is sent from the request |
 | The LLM being slow, down, or returning malformed output | Summaries are generated out of band and schema-validated; a booking never fails because the model did |
 
@@ -159,7 +160,8 @@ Interactive documentation is generated from the code at
 | `GET` | `/admin/doctors/{id}` | admin | One doctor with their schedule and leave. |
 | `PATCH` | `/admin/doctors/{id}` | admin | Change specialisation, name, slot duration or active status. |
 | `PUT` | `/admin/doctors/{id}/working-hours` | admin | Replace the complete weekly schedule. |
-| `POST` | `/admin/doctors/{id}/leave` | admin | Record a leave day. |
+| `GET` | `/admin/doctors/{id}/leave/impact?date=` | admin | Preview whose appointments a leave day would cancel. Read-only. |
+| `POST` | `/admin/doctors/{id}/leave` | admin | Record a leave day; cancels and notifies when acknowledged. |
 | `DELETE` | `/admin/doctors/{id}/leave/{leave_id}` | admin | Remove a leave day. |
 | `GET` | `/doctors` | any signed-in user | Search bookable doctors by specialisation. |
 | `GET` | `/doctors/{id}/slots?date=` | any signed-in user | Free slots on a date, computed live. |
@@ -198,6 +200,21 @@ message as `failed` rather than dropping it, so `GET /admin/notifications` can a
 did my patient get no email". Workers claim rows with `FOR UPDATE SKIP LOCKED`, so a second
 instance never sends anything twice. Full reasoning in
 [ADR 0005](docs/adr/0005-notification-outbox.md).
+
+### When a doctor goes on leave
+
+Recording leave on a day with existing bookings is **refused** by default:
+
+```json
+{"detail": "2 appointment(s) are already booked on 2026-08-23. Review them at /admin/doctors/{id}/leave/impact?date=2026-08-23, then resend with cancel_existing_appointments=true to cancel and notify them."}
+```
+
+Cancelling several people's medical appointments should never be a side effect of recording a
+date, so the admin has to look first — `.../leave/impact` lists who is affected, by name and
+time, and changes nothing. Once acknowledged, the leave day, every cancellation, every queued
+notice and every dropped reminder commit in **one transaction**: the day is either fully
+handled or untouched. Reasoning in
+[ADR 0006](docs/adr/0006-doctor-leave-cascade.md).
 
 ### Scheduling rules
 
@@ -304,7 +321,7 @@ frontend/             React SPA (Phase 8)
 - [x] **Phase 3** — Availability and booking: slot generation, hold-then-confirm, double-booking
       prevention with a concurrent-request test.
 - [x] **Phase 4** — Notification outbox and email delivery with capped retries.
-- [ ] **Phase 5** — Doctor leave conflict cascade.
+- [x] **Phase 5** — Doctor leave conflict cascade.
 - [ ] **Phase 6** — LLM pre-visit and post-visit summaries with graceful degradation;
       medication reminders.
 - [ ] **Phase 7** — Google Calendar OAuth and event lifecycle.

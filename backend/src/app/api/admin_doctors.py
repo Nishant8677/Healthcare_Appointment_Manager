@@ -7,32 +7,38 @@ per route, so a new endpoint cannot accidentally ship unprotected.
 from __future__ import annotations
 
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_session, require_roles
+from app.api.deps import get_app_settings, get_session, require_roles
+from app.core.config import Settings
 from app.core.exceptions import (
     DoctorNotFound,
     DuplicateLeaveDay,
     EmailAlreadyRegistered,
     InvalidSchedule,
+    LeaveConflictsExist,
     LeaveDayNotFound,
 )
 from app.models.doctor import DoctorProfile
 from app.models.enums import UserRole
 from app.schemas.doctor import (
+    AffectedAppointment,
     DoctorCreateRequest,
     DoctorDetailResponse,
     DoctorResponse,
     DoctorUpdateRequest,
     LeaveDayCreateRequest,
     LeaveDayResponse,
+    LeaveImpactResponse,
+    LeaveRecordedResponse,
     WorkingHoursItem,
     WorkingHoursReplaceRequest,
     WorkingHoursResponse,
 )
-from app.services import doctor_service
+from app.services import doctor_service, leave_service
 from app.services.scheduling import WorkingWindow
 
 router = APIRouter(
@@ -214,9 +220,51 @@ async def replace_working_hours(
     return _to_detail(profile)
 
 
+@router.get(
+    "/{doctor_id}/leave/impact",
+    response_model=LeaveImpactResponse,
+    summary="What recording leave on this date would cancel",
+)
+async def leave_impact(
+    doctor_id: uuid.UUID,
+    day: date = Query(alias="date", description="Calendar date in the clinic's timezone."),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> LeaveImpactResponse:
+    """Read-only preview. Nothing is changed.
+
+    Exists so an admin can see exactly whose appointments are at stake before deciding — a
+    bare count in an error message is not enough to make that call responsibly.
+    """
+    try:
+        doctor = await doctor_service.get_doctor(session, doctor_id)
+    except DoctorNotFound:
+        raise _not_found(doctor_id) from None
+
+    affected = await leave_service.appointments_on(
+        session, doctor.id, day, zone=settings.clinic_zone
+    )
+
+    return LeaveImpactResponse(
+        doctor_id=doctor.id,
+        leave_date=day,
+        affected_count=len(affected),
+        appointments=[
+            AffectedAppointment(
+                appointment_id=appointment.id,
+                patient_name=appointment.patient.full_name,
+                patient_email=appointment.patient.email,
+                starts_at=appointment.starts_at,
+                status=appointment.status.value,
+            )
+            for appointment in affected
+        ],
+    )
+
+
 @router.post(
     "/{doctor_id}/leave",
-    response_model=LeaveDayResponse,
+    response_model=LeaveRecordedResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Record a leave day",
 )
@@ -224,25 +272,50 @@ async def add_leave_day(
     doctor_id: uuid.UUID,
     payload: LeaveDayCreateRequest,
     session: AsyncSession = Depends(get_session),
-) -> LeaveDayResponse:
+    settings: Settings = Depends(get_app_settings),
+) -> LeaveRecordedResponse:
+    """Mark the doctor unavailable, cancelling and notifying anyone already booked.
+
+    If patients are booked that day the request is refused unless
+    `cancel_existing_appointments` is set, and nothing is changed. Check
+    `GET /admin/doctors/{id}/leave/impact` first to see who is affected.
+    """
     try:
-        leave = await doctor_service.add_leave_day(
+        outcome = await leave_service.record_leave(
             session,
             doctor_id,
             leave_date=payload.leave_date,
+            settings=settings,
             reason=payload.reason,
+            cancel_existing_appointments=payload.cancel_existing_appointments,
         )
     except DoctorNotFound:
         raise _not_found(doctor_id) from None
     except InvalidSchedule as error:
         raise _unprocessable(error) from None
+    except LeaveConflictsExist as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{error.count} appointment(s) are already booked on "
+                f"{payload.leave_date.isoformat()}. Review them at "
+                f"/admin/doctors/{doctor_id}/leave/impact?date={payload.leave_date.isoformat()}, "
+                "then resend with cancel_existing_appointments=true to cancel and notify them."
+            ),
+        ) from None
     except DuplicateLeaveDay:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"{payload.leave_date.isoformat()} is already recorded as leave.",
         ) from None
 
-    return LeaveDayResponse(id=leave.id, leave_date=leave.leave_date, reason=leave.reason)
+    return LeaveRecordedResponse(
+        id=outcome.leave_day.id,
+        leave_date=outcome.leave_day.leave_date,
+        reason=outcome.leave_day.reason,
+        cancelled_appointments=outcome.cancelled,
+        patients_notified=outcome.patients_notified,
+    )
 
 
 @router.delete(
@@ -256,7 +329,7 @@ async def remove_leave_day(
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     try:
-        await doctor_service.remove_leave_day(session, doctor_id, leave_id)
+        await leave_service.remove_leave_day(session, doctor_id, leave_id)
     except LeaveDayNotFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

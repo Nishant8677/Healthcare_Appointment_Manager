@@ -86,3 +86,15 @@ class AppointmentNotCancellable(DomainError):
 
 class AppointmentNotConfirmable(DomainError):
     """The appointment is not in a state that can be confirmed."""
+
+
+class LeaveConflictsExist(DomainError):
+    """Recording this leave would cancel appointments that are already booked.
+
+    Raised so the caller has to acknowledge the number of patients affected. Cancelling other
+    people's medical appointments should never be a side effect of an unrelated request.
+    """
+
+    def __init__(self, count: int) -> None:
+        self.count = count
+        super().__init__(f"{count} appointment(s) already booked on that date")

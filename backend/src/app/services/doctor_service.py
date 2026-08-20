@@ -9,22 +9,15 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Sequence
-from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import (
-    DoctorNotFound,
-    DuplicateLeaveDay,
-    EmailAlreadyRegistered,
-    InvalidSchedule,
-    LeaveDayNotFound,
-)
+from app.core.exceptions import DoctorNotFound, EmailAlreadyRegistered
 from app.core.security import hash_password
-from app.models.doctor import DoctorLeaveDay, DoctorProfile, DoctorWorkingHours
+from app.models.doctor import DoctorProfile, DoctorWorkingHours
 from app.models.enums import UserRole
 from app.models.user import User
 from app.services.auth_service import normalise_email
@@ -186,72 +179,6 @@ async def replace_working_hours(
         extra={"doctor_profile_id": str(doctor_id), "window_count": len(windows)},
     )
     return await get_doctor(session, doctor_id)
-
-
-async def add_leave_day(
-    session: AsyncSession,
-    doctor_id: uuid.UUID,
-    *,
-    leave_date: date,
-    reason: str | None = None,
-    today: date | None = None,
-) -> DoctorLeaveDay:
-    """Record a day the doctor is unavailable.
-
-    `today` is injectable so the past-date rule can be tested without freezing the clock.
-
-    Note: cancelling and notifying patients already booked on that date is Phase 5. Until
-    booking exists there is nothing to conflict with, so recording leave is safe on its own.
-
-    Raises:
-        InvalidSchedule: the date is in the past.
-        DuplicateLeaveDay: already recorded.
-    """
-    reference = today or date.today()
-    if leave_date < reference:
-        raise InvalidSchedule(
-            f"{leave_date.isoformat()} is in the past; leave can only be recorded "
-            f"from {reference.isoformat()} onwards."
-        )
-
-    profile = await get_doctor(session, doctor_id)
-    leave = DoctorLeaveDay(doctor_profile_id=profile.id, leave_date=leave_date, reason=reason)
-    session.add(leave)
-
-    try:
-        await session.commit()
-    except IntegrityError as exc:
-        # The unique constraint is the arbiter rather than a prior SELECT, so two concurrent
-        # requests cannot both insert the same date.
-        await session.rollback()
-        raise DuplicateLeaveDay(leave_date.isoformat()) from exc
-
-    await session.refresh(leave)
-    return leave
-
-
-async def remove_leave_day(
-    session: AsyncSession, doctor_id: uuid.UUID, leave_id: uuid.UUID
-) -> None:
-    """Delete a recorded leave day.
-
-    Raises:
-        LeaveDayNotFound: no such leave day for this doctor.
-    """
-    result = await session.execute(
-        select(DoctorLeaveDay).where(
-            DoctorLeaveDay.id == leave_id,
-            # Scoped to the doctor in the query itself, so a valid leave id belonging to
-            # another doctor cannot be deleted through this route.
-            DoctorLeaveDay.doctor_profile_id == doctor_id,
-        )
-    )
-    leave = result.scalar_one_or_none()
-    if leave is None:
-        raise LeaveDayNotFound(str(leave_id))
-
-    await session.delete(leave)
-    await session.commit()
 
 
 def _windows_of(profile: DoctorProfile) -> list[WorkingWindow]:
