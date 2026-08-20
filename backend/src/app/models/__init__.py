@@ -6,11 +6,14 @@ been registered on `Base.metadata` by import time.
 
 from app.models.appointment import Appointment, SymptomReport
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.calendar import CalendarConnection, CalendarSyncJob
 from app.models.clinical import AiSummary, Prescription, PrescriptionMedication
 from app.models.doctor import DoctorLeaveDay, DoctorProfile, DoctorWorkingHours
 from app.models.enums import (
     OCCUPYING_STATUSES,
     AppointmentStatus,
+    CalendarSyncAction,
+    CalendarSyncStatus,
     NotificationStatus,
     NotificationType,
     SummaryStatus,
@@ -27,6 +30,10 @@ __all__ = [
     "Appointment",
     "AppointmentStatus",
     "Base",
+    "CalendarConnection",
+    "CalendarSyncAction",
+    "CalendarSyncJob",
+    "CalendarSyncStatus",
     "DoctorLeaveDay",
     "DoctorProfile",
     "DoctorWorkingHours",

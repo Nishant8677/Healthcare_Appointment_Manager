@@ -16,14 +16,26 @@ from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
 from app import __version__
-from app.api import admin_doctors, admin_notifications, appointments, auth, doctors, health
+from app.api import (
+    admin_calendar,
+    admin_doctors,
+    admin_notifications,
+    appointments,
+    auth,
+    calendar,
+    doctors,
+    health,
+)
 from app.core.config import Settings, get_settings
 from app.core.db import Database
 from app.core.logging import configure_logging, request_id_var
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 from app.services.email import build_sender
+from app.services.google_calendar import build_calendar_gateway
 from app.services.llm import build_llm_client
 from app.services.summaries import generate_due_summaries
+from app.services.token_crypto import TokenCipher
+from app.workers.calendar_worker import sync_once
 from app.workers.notification_worker import deliver_once
 from app.workers.runner import PollingWorker
 
@@ -76,7 +88,7 @@ def _build_lifespan(
             logger.warning("continuing startup in degraded mode; /readyz will report down")
 
         workers: list[PollingWorker] = []
-        if settings.notification_worker_enabled:
+        if settings.background_workers_enabled:
             # Built here rather than per-request: one sender, one client, owned by the app.
             sender = build_sender(settings)
             llm_client = build_llm_client(settings)
@@ -107,6 +119,26 @@ def _build_lifespan(
                         max_attempts=settings.llm_max_attempts,
                     ),
                     poll_seconds=settings.summary_poll_seconds,
+                )
+            )
+            gateway = build_calendar_gateway(settings)
+            cipher = (
+                TokenCipher(settings.calendar_token_key.get_secret_value())
+                if settings.calendar_token_key is not None
+                else None
+            )
+            workers.append(
+                PollingWorker(
+                    "calendar-worker",
+                    database,
+                    lambda session: sync_once(
+                        session,
+                        gateway,
+                        cipher,
+                        limit=settings.calendar_batch_size,
+                        max_attempts=settings.calendar_max_attempts,
+                    ),
+                    poll_seconds=settings.calendar_poll_seconds,
                 )
             )
             for worker in workers:
@@ -161,6 +193,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_notifications.router)
     app.include_router(doctors.router)
     app.include_router(appointments.router)
+    app.include_router(calendar.router)
+    app.include_router(admin_calendar.router)
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:

@@ -24,6 +24,13 @@ _hasher = PasswordHasher()
 # refresh token so one cannot be replayed as the other.
 TOKEN_TYPE = "access"  # noqa: S105
 
+# The OAuth `state` parameter is a signed token of this type rather than an opaque
+# random string in a server-side table. Google redirects the *browser* back to the
+# callback, so the request arrives with no Authorization header — the state has to carry
+# the user identity itself. Signing it means a forged state cannot bind somebody else's
+# Google account to an account here, and a short expiry bounds the replay window.
+CALENDAR_STATE_TOKEN_TYPE = "calendar_oauth_state"  # noqa: S105
+
 
 class TokenError(Exception):
     """Raised when a token is missing, malformed, expired or of the wrong type."""
@@ -104,3 +111,52 @@ def decode_access_token(token: str, *, secret: str, algorithm: str) -> dict[str,
         raise TokenError("token is not an access token")
 
     return claims
+
+
+def create_calendar_state_token(
+    *,
+    user_id: uuid.UUID,
+    secret: str,
+    algorithm: str,
+    expires_in_minutes: int,
+    now: datetime | None = None,
+) -> str:
+    """Issue the signed `state` for a Google OAuth authorisation request."""
+    issued_at = now or datetime.now(UTC)
+    payload: dict[str, Any] = {
+        "sub": str(user_id),
+        "type": CALENDAR_STATE_TOKEN_TYPE,
+        "iat": issued_at,
+        "exp": issued_at + timedelta(minutes=expires_in_minutes),
+        # Makes each authorisation attempt distinct, so a state cannot be replayed to
+        # re-run a consent flow the user has already completed.
+        "jti": uuid.uuid4().hex,
+    }
+    return jwt.encode(payload, secret, algorithm=algorithm)
+
+
+def decode_calendar_state_token(token: str, *, secret: str, algorithm: str) -> uuid.UUID:
+    """Verify an OAuth `state` and return the user it was issued for.
+
+    Raises:
+        TokenError: if the signature, expiry, structure or token type is not valid. An
+            access token presented here is rejected by the `type` check, so a stolen bearer
+            token cannot be pasted into a callback URL to attach a calendar.
+    """
+    try:
+        claims: dict[str, Any] = jwt.decode(
+            token,
+            secret,
+            algorithms=[algorithm],
+            options={"require": ["exp", "sub", "type"]},
+        )
+    except jwt.PyJWTError as exc:
+        raise TokenError(str(exc)) from exc
+
+    if claims.get("type") != CALENDAR_STATE_TOKEN_TYPE:
+        raise TokenError("token is not a calendar authorisation state")
+
+    try:
+        return uuid.UUID(claims["sub"])
+    except (KeyError, ValueError) as exc:
+        raise TokenError("state token does not carry a valid user id") from exc

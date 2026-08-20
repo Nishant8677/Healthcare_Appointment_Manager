@@ -11,7 +11,7 @@ from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["dev", "test", "prod"]
@@ -106,7 +106,36 @@ class Settings(BaseSettings):
     medication_last_dose_hour: int = Field(default=20, ge=0, le=23)
 
     # --- Notification worker ---
-    notification_worker_enabled: bool = True
+    # --- Google Calendar ---
+    # Unset means the feature is inert rather than broken: no user can connect a calendar,
+    # so no sync row is ever written and every other part of the system behaves normally.
+    google_client_id: str | None = None
+    google_client_secret: SecretStr | None = None
+    # Must match a redirect URI registered on the OAuth client exactly, character for
+    # character, or Google rejects the authorisation request with redirect_uri_mismatch.
+    google_redirect_uri: str = "http://localhost:8000/calendar/callback"
+    # Fernet key encrypting refresh tokens at rest. A refresh token is a long-lived key to
+    # somebody's calendar; a database dump must not hand them over in plaintext.
+    calendar_token_key: SecretStr | None = None
+    google_api_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
+    # How long a signed OAuth state token stays valid. Short: it only has to survive the
+    # user clicking through Google's consent screen.
+    calendar_state_ttl_minutes: int = Field(default=10, gt=0, le=60)
+    # Where to send the browser after the callback succeeds. Unset returns JSON instead,
+    # which is what makes the flow testable with curl before any frontend exists.
+    calendar_return_url: str | None = None
+    calendar_poll_seconds: float = Field(default=20.0, gt=0, le=300)
+    calendar_batch_size: int = Field(default=20, gt=0, le=200)
+    calendar_max_attempts: int = Field(default=5, gt=0, le=10)
+    # How far back to backfill when a user connects their calendar. Bounded so connecting
+    # cannot queue an unbounded amount of work.
+    calendar_backfill_limit: int = Field(default=50, gt=0, le=500)
+
+    # --- Notification worker ---
+    # Gates every background worker, not only notifications: the API and the workers run
+    # in one process by default, and a deployment that scales the API out can turn them
+    # off on the web instances and run one worker instance instead.
+    background_workers_enabled: bool = True
     notification_poll_seconds: float = Field(default=15.0, gt=0, le=300)
     notification_batch_size: int = Field(default=20, gt=0, le=200)
     # Attempts before a job is parked as failed for a human to look at.
@@ -143,6 +172,39 @@ class Settings(BaseSettings):
                 'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
             )
         return value
+
+    @model_validator(mode="after")
+    def _calendar_credentials_are_complete(self) -> Settings:
+        """Reject a half-configured Google integration at startup.
+
+        A client id without a secret, or without an encryption key for the refresh tokens it
+        will produce, only fails later — at the callback, after the user has already granted
+        consent. That is the worst moment to discover a missing environment variable.
+        """
+        if self.google_client_id is None:
+            return self
+        missing = [
+            name
+            for name, value in (
+                ("GOOGLE_CLIENT_SECRET", self.google_client_secret),
+                ("CALENDAR_TOKEN_KEY", self.calendar_token_key),
+            )
+            if value is None
+        ]
+        if missing:
+            verb = "is" if len(missing) == 1 else "are"
+            raise ValueError(
+                f"GOOGLE_CLIENT_ID is set but {' and '.join(missing)} {verb} not. "
+                "Generate a token key with: "
+                'python -c "from cryptography.fernet import Fernet; '
+                'print(Fernet.generate_key().decode())"'
+            )
+        return self
+
+    @property
+    def calendar_enabled(self) -> bool:
+        """True when a user could actually connect a Google Calendar."""
+        return self.google_client_id is not None
 
     @property
     def cors_origin_list(self) -> list[str]:

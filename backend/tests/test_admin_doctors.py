@@ -325,9 +325,11 @@ async def test_a_rejected_replacement_leaves_the_previous_schedule_intact(
 # ---------------------------------------------------------------- leave
 
 
-async def test_leave_can_be_recorded(client: AsyncClient, admin_headers: Headers) -> None:
+async def test_leave_can_be_recorded(
+    client: AsyncClient, admin_headers: Headers, clinic_today: date
+) -> None:
     doctor = await create_doctor(client, admin_headers)
-    leave_date = (date.today() + timedelta(days=7)).isoformat()
+    leave_date = (clinic_today + timedelta(days=7)).isoformat()
 
     response = await client.post(
         f"{BASE}/{doctor['id']}/leave",
@@ -339,36 +341,40 @@ async def test_leave_can_be_recorded(client: AsyncClient, admin_headers: Headers
     assert response.json()["leave_date"] == leave_date
 
 
-async def test_leave_in_the_past_is_rejected(client: AsyncClient, admin_headers: Headers) -> None:
+async def test_leave_in_the_past_is_rejected(
+    client: AsyncClient, admin_headers: Headers, clinic_today: date
+) -> None:
     doctor = await create_doctor(client, admin_headers)
 
     response = await client.post(
         f"{BASE}/{doctor['id']}/leave",
         headers=admin_headers,
-        json={"leave_date": (date.today() - timedelta(days=1)).isoformat()},
+        json={"leave_date": (clinic_today - timedelta(days=1)).isoformat()},
     )
 
     assert response.status_code == 422
     assert "in the past" in response.json()["detail"]
 
 
-async def test_today_can_be_taken_as_leave(client: AsyncClient, admin_headers: Headers) -> None:
+async def test_today_can_be_taken_as_leave(
+    client: AsyncClient, admin_headers: Headers, clinic_today: date
+) -> None:
     doctor = await create_doctor(client, admin_headers)
 
     response = await client.post(
         f"{BASE}/{doctor['id']}/leave",
         headers=admin_headers,
-        json={"leave_date": date.today().isoformat()},
+        json={"leave_date": clinic_today.isoformat()},
     )
 
     assert response.status_code == 201
 
 
 async def test_the_same_leave_date_cannot_be_recorded_twice(
-    client: AsyncClient, admin_headers: Headers
+    client: AsyncClient, admin_headers: Headers, clinic_today: date
 ) -> None:
     doctor = await create_doctor(client, admin_headers)
-    leave_date = (date.today() + timedelta(days=3)).isoformat()
+    leave_date = (clinic_today + timedelta(days=3)).isoformat()
     payload = {"leave_date": leave_date}
 
     first = await client.post(f"{BASE}/{doctor['id']}/leave", headers=admin_headers, json=payload)
@@ -378,12 +384,14 @@ async def test_the_same_leave_date_cannot_be_recorded_twice(
     assert second.status_code == 409
 
 
-async def test_leave_can_be_removed(client: AsyncClient, admin_headers: Headers) -> None:
+async def test_leave_can_be_removed(
+    client: AsyncClient, admin_headers: Headers, clinic_today: date
+) -> None:
     doctor = await create_doctor(client, admin_headers)
     created = await client.post(
         f"{BASE}/{doctor['id']}/leave",
         headers=admin_headers,
-        json={"leave_date": (date.today() + timedelta(days=5)).isoformat()},
+        json={"leave_date": (clinic_today + timedelta(days=5)).isoformat()},
     )
     leave_id = created.json()["id"]
 
@@ -395,7 +403,7 @@ async def test_leave_can_be_removed(client: AsyncClient, admin_headers: Headers)
 
 
 async def test_leave_cannot_be_removed_through_another_doctor(
-    client: AsyncClient, admin_headers: Headers
+    client: AsyncClient, admin_headers: Headers, clinic_today: date
 ) -> None:
     """The leave id is scoped to its doctor in the query, not just in the URL."""
     owner = await create_doctor(client, admin_headers)
@@ -404,7 +412,7 @@ async def test_leave_cannot_be_removed_through_another_doctor(
     created = await client.post(
         f"{BASE}/{owner['id']}/leave",
         headers=admin_headers,
-        json={"leave_date": (date.today() + timedelta(days=5)).isoformat()},
+        json={"leave_date": (clinic_today + timedelta(days=5)).isoformat()},
     )
     leave_id = created.json()["id"]
 
@@ -417,7 +425,7 @@ async def test_leave_cannot_be_removed_through_another_doctor(
 
 @pytest.mark.parametrize("missing_id_path", ["", "/leave"])
 async def test_operations_on_an_unknown_doctor_return_not_found(
-    client: AsyncClient, admin_headers: Headers, missing_id_path: str
+    client: AsyncClient, admin_headers: Headers, missing_id_path: str, clinic_today: date
 ) -> None:
     unknown = uuid.uuid4()
 
@@ -425,7 +433,7 @@ async def test_operations_on_an_unknown_doctor_return_not_found(
         response = await client.post(
             f"{BASE}/{unknown}/leave",
             headers=admin_headers,
-            json={"leave_date": (date.today() + timedelta(days=2)).isoformat()},
+            json={"leave_date": (clinic_today + timedelta(days=2)).isoformat()},
         )
     else:
         response = await client.patch(

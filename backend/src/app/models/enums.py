@@ -82,3 +82,28 @@ class NotificationStatus(StrEnum):
     PENDING = "pending"
     SENT = "sent"
     FAILED = "failed"
+
+
+class CalendarSyncAction(StrEnum):
+    """What the calendar should end up looking like for one appointment and one user.
+
+    A desired end state, not a command. `SYNC` means "an event matching this appointment
+    should exist"; `DELETE` means "it should not". Storing the goal rather than a sequence of
+    operations is what makes ordering irrelevant — see `CalendarSyncJob`.
+    """
+
+    SYNC = "sync"
+    DELETE = "delete"
+
+
+class CalendarSyncStatus(StrEnum):
+    """Whether Google has been brought in line with the desired state.
+
+    `SKIPPED` is not a failure: it means the user has no connected calendar, which is the
+    normal state for most of a clinic's patients and must not look like an error.
+    """
+
+    PENDING = "pending"
+    SYNCED = "synced"
+    SKIPPED = "skipped"
+    FAILED = "failed"

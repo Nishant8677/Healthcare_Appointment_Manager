@@ -30,7 +30,7 @@ from app.core.exceptions import (
 from app.models.appointment import Appointment
 from app.models.doctor import DoctorLeaveDay, DoctorProfile
 from app.models.enums import AppointmentStatus
-from app.services import notifications
+from app.services import calendar_sync, notifications
 from app.services.doctor_service import get_doctor
 
 logger = logging.getLogger(__name__)
@@ -136,6 +136,9 @@ async def record_leave(
         )
 
         await notifications.drop_pending_reminders(session, appointment.id)
+        # The doctor's day is now clear in the app; it has to become clear in Google too, or
+        # both parties keep an entry for a consultation the clinic has already cancelled.
+        await calendar_sync.enqueue_removal(session, appointment.id)
 
         # A held slot was never a booking: the patient is still choosing, and will simply find
         # the slot gone. Emailing them about an appointment they never made would confuse.

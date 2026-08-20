@@ -401,12 +401,15 @@ async def test_the_notice_tells_the_patient_to_rebook(
 
 
 async def test_past_leave_is_still_rejected(
-    client: AsyncClient, admin_headers: Headers, bookable_doctor: DoctorProfile
+    client: AsyncClient,
+    admin_headers: Headers,
+    bookable_doctor: DoctorProfile,
+    clinic_today: date,
 ) -> None:
     response = await client.post(
         f"{BASE}/{bookable_doctor.id}/leave",
         headers=admin_headers,
-        json=await leave_payload(date.today() - timedelta(days=1)),
+        json=await leave_payload(clinic_today - timedelta(days=1)),
     )
 
     assert response.status_code == 422

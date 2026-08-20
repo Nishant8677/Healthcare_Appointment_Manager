@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,21 @@ logger = logging.getLogger(__name__)
 
 # One pass: given a session, do some work and report what happened.
 Pass = Callable[[AsyncSession], Awaitable[dict[str, int] | Any]]
+
+# Growing gaps: a provider having a bad second deserves a quick retry, one having a bad
+# hour does not deserve to be hammered. The last entry repeats for any further attempts.
+# Shared by every retrying worker — a second copy would be the one that quietly diverges.
+RETRY_BACKOFF = (
+    timedelta(minutes=1),
+    timedelta(minutes=5),
+    timedelta(minutes=30),
+)
+
+
+def backoff_for(attempts: int) -> timedelta:
+    """Delay before retry number `attempts` (1-based)."""
+    index = min(max(attempts, 1), len(RETRY_BACKOFF)) - 1
+    return RETRY_BACKOFF[index]
 
 
 class PollingWorker:

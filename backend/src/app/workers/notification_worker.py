@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,22 +23,9 @@ from app.models.enums import NotificationStatus
 from app.models.notification import NotificationJob
 from app.services import notifications
 from app.services.email import EmailDeliveryError, EmailSender
+from app.workers.runner import backoff_for
 
 logger = logging.getLogger(__name__)
-
-# Growing gaps: a provider having a bad second deserves a quick retry, one having a bad hour
-# does not deserve to be hammered. The last entry repeats for any further attempts.
-RETRY_BACKOFF = (
-    timedelta(minutes=1),
-    timedelta(minutes=5),
-    timedelta(minutes=30),
-)
-
-
-def backoff_for(attempts: int) -> timedelta:
-    """Delay before retry number `attempts` (1-based)."""
-    index = min(max(attempts, 1), len(RETRY_BACKOFF)) - 1
-    return RETRY_BACKOFF[index]
 
 
 @dataclass(frozen=True, slots=True)

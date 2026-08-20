@@ -41,7 +41,7 @@ from app.models.appointment import Appointment, SymptomReport
 from app.models.doctor import DoctorProfile
 from app.models.enums import AppointmentStatus, SummaryType, UserRole
 from app.models.user import User
-from app.services import notifications, summaries
+from app.services import calendar_sync, notifications, summaries
 from app.services.availability import available_slots
 from app.services.doctor_service import get_doctor
 
@@ -269,6 +269,15 @@ async def confirm_hold(
         reminder_lead_hours=settings.reminder_lead_hours,
         now=reference,
     )
+    # Recorded in this transaction, written to Google by the worker afterwards. An outage at
+    # Google delays a calendar entry; it never fails a booking.
+    await calendar_sync.enqueue_appointment(
+        session,
+        appointment=appointment,
+        patient=patient,
+        doctor=doctor,
+        zone=settings.clinic_zone,
+    )
 
     await session.commit()
     logger.info("appointment confirmed", extra={"appointment_id": str(appointment.id)})
@@ -332,6 +341,10 @@ async def cancel_appointment(
             reason=reason,
             now=reference,
         )
+
+    # The calendar entries are marked for removal rather than deleted here, so a cancellation
+    # never waits on Google and never fails because Google is down.
+    await calendar_sync.enqueue_removal(session, appointment.id)
 
     await session.commit()
     logger.info(
@@ -442,6 +455,17 @@ async def reschedule_appointment(
         zone=settings.clinic_zone,
         reminder_lead_hours=settings.reminder_lead_hours,
         now=reference,
+    )
+
+    # Moves the existing calendar entries onto the replacement rather than deleting and
+    # recreating them, so the entry in each participant's calendar shifts to the new time.
+    await calendar_sync.transfer_on_reschedule(
+        session,
+        original_id=original.id,
+        replacement=replacement,
+        patient=patient,
+        doctor=doctor,
+        zone=settings.clinic_zone,
     )
 
     try:

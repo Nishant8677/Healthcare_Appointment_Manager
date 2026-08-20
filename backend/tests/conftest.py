@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
-from datetime import time
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 
 import pytest
@@ -33,7 +33,9 @@ from app.core.eventloop import configure_event_loop_policy
 from app.core.security import create_access_token, hash_password
 from app.main import create_app
 from app.models import Base, DoctorProfile, User, UserRole
+from app.models.calendar import CalendarConnection
 from app.models.doctor import DoctorWorkingHours
+from app.services.token_crypto import TokenCipher
 
 # Must run before pytest-asyncio creates any event loop: on Windows the default loop cannot
 # run the async database driver.
@@ -45,6 +47,11 @@ DEFAULT_TEST_DATABASE_URL = "postgresql+psycopg://ham:ham_local_dev@localhost:54
 # Fixed, obviously-fake credentials: long enough to satisfy validation, never real secrets.
 TEST_JWT_SECRET = "test-only-secret-not-used-anywhere-outside-the-suite"
 DEFAULT_PASSWORD = "correct-horse-battery"
+# A real Fernet key, generated once for the suite and committed deliberately: it encrypts
+# nothing but fake tokens in a throwaway database, and a valid key is required to exercise
+# the encryption path at all.
+TEST_CALENDAR_TOKEN_KEY = "kA9AIhf4AQW3SWXtM6sCqsVytHaL3-eBRPwIuyd1Hsg="
+TEST_GOOGLE_CLIENT_ID = "test-client-id.apps.googleusercontent.com"
 
 
 @pytest.fixture
@@ -68,8 +75,20 @@ def settings() -> Settings:
         db_connect_timeout_seconds=5,
         # Tests drive the worker directly so delivery is deterministic; a background loop
         # would send messages at unpredictable moments and make assertions flaky.
-        notification_worker_enabled=False,
+        background_workers_enabled=False,
     )
+
+
+@pytest.fixture
+def clinic_today(settings: Settings) -> date:
+    """Today's date *in the clinic's timezone*, which is not always the machine's.
+
+    The rules under test — leave cannot be recorded for a past day, slots in the past are not
+    offered — are evaluated in the clinic zone. A test using `date.today()` reads the runner's
+    local date instead, so on a machine east of the clinic it silently tests the wrong day for
+    a few hours after local midnight, and fails only in that window.
+    """
+    return datetime.now(settings.clinic_zone).date()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -270,3 +289,59 @@ async def make_patient(
         return user, auth_header(user)
 
     return _make
+
+
+# --------------------------------------------------------------------------- calendar
+
+
+@pytest.fixture
+def token_cipher() -> TokenCipher:
+    return TokenCipher(TEST_CALENDAR_TOKEN_KEY)
+
+
+@pytest.fixture
+def calendar_settings(settings: Settings) -> Settings:
+    """Settings with Google Calendar configured, for the tests that need it.
+
+    A copy rather than a change to the session fixture: most of the suite must keep running
+    with the calendar switched off, because that is the configuration the application has to
+    behave correctly in.
+    """
+    return settings.model_copy(
+        update={
+            "google_client_id": TEST_GOOGLE_CLIENT_ID,
+            "google_client_secret": SecretStr("test-client-secret"),
+            "google_redirect_uri": "http://testserver/calendar/callback",
+            "calendar_token_key": SecretStr(TEST_CALENDAR_TOKEN_KEY),
+        }
+    )
+
+
+ConnectCalendar = Callable[..., Awaitable[CalendarConnection]]
+
+
+@pytest_asyncio.fixture
+async def connect_calendar(db_session: AsyncSession, token_cipher: TokenCipher) -> ConnectCalendar:
+    """Give a user a working calendar connection, without the OAuth round trip."""
+
+    async def _connect(
+        user: User,
+        *,
+        refresh_token: str = "fake-refresh-token",
+        calendar_id: str = "primary",
+        revoked: bool = False,
+    ) -> CalendarConnection:
+        connection = CalendarConnection(
+            user_id=user.id,
+            google_account_email=f"{user.email.split('@')[0]}@gmail.example.com",
+            calendar_id=calendar_id,
+            encrypted_refresh_token=token_cipher.encrypt(refresh_token),
+            granted_scope="openid email https://www.googleapis.com/auth/calendar.events",
+            revoked_at=datetime.now(UTC) if revoked else None,
+        )
+        db_session.add(connection)
+        await db_session.commit()
+        await db_session.refresh(connection)
+        return connection
+
+    return _connect
