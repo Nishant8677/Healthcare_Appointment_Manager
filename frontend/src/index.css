@@ -1,0 +1,144 @@
+/* Design tokens and base styles.
+ *
+ * Plain CSS with custom properties rather than a utility framework. Three portals need a
+ * consistent, calm visual language and about a dozen components — a framework would be a
+ * build-step dependency for something the platform already does well.
+ *
+ * The palette is deliberately quiet. This is clinical software: people read it while a
+ * patient is waiting, and colour is reserved for things that carry meaning (urgency levels,
+ * delivery failures, appointment status) rather than decoration.
+ */
+
+:root {
+  /* Neutrals */
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-sunken: #f1f3f6;
+  --border: #e2e6ec;
+  --border-strong: #cdd4de;
+
+  /* Text */
+  --ink: #16202c;
+  --ink-muted: #5a6675;
+  --ink-faint: #8b95a3;
+
+  /* Brand: a medical teal, used sparingly for actions and the active state */
+  --accent: #0f766e;
+  --accent-hover: #115e59;
+  --accent-soft: #e6f4f2;
+  --accent-ink: #ffffff;
+
+  /* Semantic — these carry information, so they must stay distinguishable */
+  --danger: #b42318;
+  --danger-soft: #fef3f2;
+  --warning: #b54708;
+  --warning-soft: #fffaeb;
+  --success: #067647;
+  --success-soft: #ecfdf3;
+  --info: #175cd3;
+  --info-soft: #eff8ff;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 6%);
+  --shadow: 0 4px 12px rgb(16 24 40 / 8%);
+
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --max-width: 1120px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.011em;
+}
+
+h1 {
+  font-size: 1.6rem;
+}
+h2 {
+  font-size: 1.2rem;
+}
+h3 {
+  font-size: 1rem;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* A visible focus ring on every interactive element. Clinic staff work fast and often from
+ * the keyboard; removing this to tidy the design would make the app unusable for them. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+button {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* Screen-reader-only text, for labels a sighted user gets from context. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,65 @@
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.7rem;
+  margin-bottom: 1.35rem;
+}
+
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.9rem;
+}
+
+.stat--info {
+  border-left-color: var(--info);
+}
+.stat--success {
+  border-left-color: var(--success);
+}
+.stat--danger {
+  border-left-color: var(--danger);
+}
+.stat--neutral {
+  border-left-color: var(--border-strong);
+}
+
+/* Only a non-zero failure count gets the loud treatment. A permanent red panel showing 0
+   trains people to ignore it, which is exactly the wrong habit for this number. */
+.stat.is-loud {
+  background: var(--danger-soft);
+  border-color: #f0c3bf;
+}
+
+.stat__value {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.stat__label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.ops__filter {
+  max-width: 14rem;
+  margin-bottom: 1rem;
+}
+
+.ops__detail {
+  max-width: 26rem;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+  word-break: break-word;
+}
+
+.ops__sub {
+  display: block;
+  color: var(--ink-faint);
+}

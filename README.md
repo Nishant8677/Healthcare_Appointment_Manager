@@ -5,8 +5,8 @@ and describe their symptoms up front; the doctor gets an AI-generated pre-visit 
 urgency level; after the visit the patient gets a plain-language summary with a medication
 schedule. Both sides stay informed through email and Google Calendar.
 
-> **Status: Phase 7 complete** — booking with proven double-booking prevention, a
-> transactional notification outbox, the doctor-leave cascade, AI pre-visit and post-visit
+> **Status: Phase 8 complete** — the three portals are live over a backend with proven
+> double-booking prevention, a transactional notification outbox, the doctor-leave cascade, AI
 > summaries that degrade safely when the model is unavailable, and Google Calendar sync built
 > as a desired-state reconciler. See [Roadmap](#roadmap).
 
@@ -74,7 +74,7 @@ removes the operational surface.
 ## Quickstart
 
 **Prerequisites:** Python 3.11+, [uv](https://docs.astral.sh/uv/), Docker (for the local
-database), Node 20+ (frontend, from Phase 8).
+database), Node 20+ (for the frontend).
 
 ```bash
 git clone https://github.com/<your-username>/Healthcare_Appointment_Manager.git
@@ -115,6 +115,22 @@ uv run uvicorn app.main:create_app --factory --reload
 
 The API is then at <http://localhost:8000>, with interactive documentation at
 <http://localhost:8000/docs>.
+
+### Run the portals
+
+In a second terminal:
+
+```bash
+cd frontend && npm install
+```
+
+```bash
+npm run dev
+```
+
+Open <http://localhost:5173>. The port is fixed because it is what the backend's default
+`CORS_ORIGINS` allows, so a fresh checkout works with no configuration on either side.
+Frontend details are in [frontend/README.md](frontend/README.md).
 
 ### Create the first admin
 
@@ -266,6 +282,35 @@ an attacker's calendar to someone else's account. Full reasoning in
 [ADR 0008](docs/adr/0008-google-calendar.md); setup steps in
 [docs/google-calendar-setup.md](docs/google-calendar-setup.md).
 
+### The three portals
+
+One application, three portals, separated at the routing layer so the role a screen belongs
+to is visible in one file rather than in a check at the top of fifteen. Every protected
+endpoint enforces its own roles server-side — the guards are there so a patient is never
+*shown* a doctor's screen that then fails piecemeal with 403s, and so the doctor's AI triage
+brief is never fetched into a patient's browser at all.
+
+| Portal | What it does |
+| --- | --- |
+| **Patient** | Search doctors by specialisation, pick a slot, complete the symptom form against a live countdown, then see the visit summary and medication schedule afterwards. Reschedule and cancel. |
+| **Doctor** | The day's schedule grouped by date; per appointment, the patient's own words, the AI brief with an urgency level, and the form that records notes and a prescription. |
+| **Admin** | Create doctors with a weekly working-hours editor, record leave with a preview of exactly whose appointments it would cancel, and watch the notification outbox and calendar sync queues. |
+
+Two details worth looking at, because they make backend design visible rather than asking you
+to take the README's word for it:
+
+- **The slot hold is a countdown.** The symptom form shows the time left, ticking, red under a
+  minute, and replaces itself with an explanation when it lapses. The API enforces the hold
+  regardless — this makes the mechanism legible.
+- **The leave cascade shows its cost first.** Choosing a date lists each affected patient by
+  name and time, and the button reads "Cancel 3 appointments and record leave". Acknowledgement
+  is required by the API; the UI's job is to make it *informed*.
+
+**Three runtime dependencies** — `react`, `react-dom`, `react-router-dom` — with the HTTP
+client, the data-fetching hook and the styling written rather than installed. The reasoning
+for each is in [frontend/README.md](frontend/README.md) and [ADR 0009](docs/adr/0009-frontend.md);
+the result is about 89 kB gzipped.
+
 ### When a doctor goes on leave
 
 Recording leave on a day with existing bookings is **refused** by default:
@@ -333,6 +378,7 @@ Every variable the backend reads. See [`.env.example`](.env.example) for a copya
 | `CALENDAR_RETURN_URL` | no | — | Where to send the browser after connecting. Unset returns JSON, which makes the flow testable with curl. |
 | `CALENDAR_MAX_ATTEMPTS` | no | `5` | Attempts before a calendar entry is parked as failed. |
 | `CALENDAR_BACKFILL_LIMIT` | no | `50` | Upcoming appointments queued when a user connects, so connecting is not a no-op. |
+| `VITE_API_BASE_URL` | no | `http://localhost:8000` | **Frontend**, read at build time. Where the portals look for the API. |
 
 Setting Google Calendar up end to end — console project, scopes, redirect URIs, the
 seven-day testing-mode caveat — is in
@@ -367,6 +413,18 @@ Tests run against a real PostgreSQL database rather than SQLite. The concurrency
 this project is judged on depend on Postgres row locking and partial unique indexes, so a
 substitute engine would let genuinely broken booking code pass.
 
+From `frontend/`:
+
+```bash
+npm test && npm run typecheck && npm run lint
+```
+
+```bash
+npm run build
+```
+
+**387 tests in total** — 329 backend, 58 frontend.
+
 ---
 
 ## Project structure
@@ -384,7 +442,14 @@ backend/
   tests/
 docs/                 ER diagram, architecture notes, design write-up
 scripts/              database bootstrap
-frontend/             React SPA (Phase 8)
+frontend/
+  src/
+    api/              typed client over fetch
+    auth/             session, context, route guards
+    components/       shared UI primitives
+    hooks/            data fetching and actions
+    lib/              pure formatting helpers
+    pages/            patient/ doctor/ admin/
 ```
 
 ---
@@ -404,7 +469,8 @@ frontend/             React SPA (Phase 8)
       medication reminders.
 - [x] **Phase 7** — Google Calendar OAuth and event lifecycle: per-user connections with
       encrypted refresh tokens, and a desired-state reconciler that survives Google being down.
-- [ ] **Phase 8** — React portals.
+- [x] **Phase 8** — Patient, doctor and admin portals in React, with three runtime
+      dependencies and the role separation enforced at the routing layer.
 - [ ] **Phase 9** — Deployment, seed data, API documentation and the design write-up.
 
 ---

@@ -1,0 +1,71 @@
+.two-up {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0 1rem;
+}
+
+.two-up .field + .field {
+  margin-top: 0;
+}
+
+.impact {
+  margin-top: 0.5rem;
+}
+
+.impact__list {
+  list-style: none;
+  margin: 0.85rem 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.impact__list li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+}
+
+.impact__list li:last-child {
+  border-bottom: none;
+}
+
+.impact__name {
+  font-weight: 500;
+  min-width: 10rem;
+}
+
+.impact__time {
+  color: var(--ink-muted);
+}
+
+.impact__email {
+  margin-left: auto;
+  color: var(--ink-faint);
+}
+
+.leave-days {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.leave-days li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.leave-days__reason {
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+  flex: 1;
+}

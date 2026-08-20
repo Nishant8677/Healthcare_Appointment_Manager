@@ -1,0 +1,353 @@
+/* Styles for the shared primitives in ui.tsx. */
+
+/* ----------------------------------------------------------------- buttons */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn--secondary {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--ink);
+}
+.btn--secondary:hover:not(:disabled) {
+  background: var(--surface-sunken);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--ink-muted);
+}
+.btn--ghost:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.btn--danger {
+  background: var(--surface);
+  border-color: #f0c3bf;
+  color: var(--danger);
+}
+.btn--danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+.btn--link,
+.btn--link:hover {
+  text-decoration: none;
+}
+
+.btn__spinner {
+  width: 0.85em;
+  height: 0.85em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ----------------------------------------------------------------- surfaces */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1.1rem 1.25rem;
+}
+
+.card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.card__title {
+  font-size: 1rem;
+}
+
+.card__subtitle {
+  margin-top: 0.15rem;
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+}
+
+.card__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.35rem;
+}
+
+.page-header__description {
+  margin-top: 0.3rem;
+  color: var(--ink-muted);
+  max-width: 62ch;
+}
+
+.page-header__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* ----------------------------------------------------------------- status */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.13rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.775rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.pill--neutral {
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  border-color: var(--border);
+}
+.pill--accent {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border-color: #bfe0dc;
+}
+.pill--success {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: #a9e0c1;
+}
+.pill--warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-color: #f2d69a;
+}
+.pill--danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: #f0c3bf;
+}
+.pill--info {
+  background: var(--info-soft);
+  color: var(--info);
+  border-color: #b7dcfd;
+}
+
+.alert {
+  border: 1px solid;
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.85rem;
+  font-size: 0.9rem;
+}
+
+.alert--danger {
+  background: var(--danger-soft);
+  border-color: #f0c3bf;
+  color: #7a1710;
+}
+.alert--warning {
+  background: var(--warning-soft);
+  border-color: #f2d69a;
+  color: #7a3006;
+}
+.alert--success {
+  background: var(--success-soft);
+  border-color: #a9e0c1;
+  color: #04502f;
+}
+.alert--info {
+  background: var(--info-soft);
+  border-color: #b7dcfd;
+  color: #10408f;
+}
+.alert--neutral,
+.alert--accent {
+  background: var(--surface-sunken);
+  border-color: var(--border);
+  color: var(--ink);
+}
+
+.alert__title {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.15rem;
+}
+
+.alert__body p + p {
+  margin-top: 0.4rem;
+}
+
+.spinner {
+  display: flex;
+  justify-content: center;
+  padding: 2rem 0;
+}
+
+.spinner__ring {
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.empty {
+  text-align: center;
+  padding: 2.25rem 1rem;
+  color: var(--ink-muted);
+}
+
+.empty__title {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.empty__body {
+  margin-top: 0.3rem;
+  font-size: 0.9rem;
+}
+
+.empty__action {
+  margin-top: 0.9rem;
+}
+
+/* ----------------------------------------------------------------- forms */
+
+.field + .field {
+  margin-top: 0.9rem;
+}
+
+.field__label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 0.3rem;
+}
+
+.field__hint {
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+
+.field__error {
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+
+.input {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 0.9rem;
+}
+
+.input:focus {
+  border-color: var(--accent);
+}
+
+.input--invalid {
+  border-color: var(--danger);
+}
+
+.input--area {
+  min-height: 7rem;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.input--select {
+  cursor: pointer;
+}
+
+/* ----------------------------------------------------------------- tables */
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+table.data th,
+table.data td {
+  text-align: left;
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+table.data th {
+  background: var(--surface-sunken);
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+table.data tr:last-child td {
+  border-bottom: none;
+}
+
+/* Names and dates read badly broken across three lines. The wrapper scrolls instead. */
+table.data td:first-child,
+table.data td.nowrap {
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}

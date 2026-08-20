@@ -1,0 +1,133 @@
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell__bar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.shell__inner {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0.7rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.shell__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.shell__mark {
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 7px;
+  background: var(--accent);
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* A plus sign, drawn rather than shipped as an icon file. */
+.shell__mark::before,
+.shell__mark::after {
+  content: '';
+  position: absolute;
+  background: var(--accent-ink);
+  border-radius: 1px;
+}
+.shell__mark::before {
+  inset: 0.85rem 0.45rem;
+}
+.shell__mark::after {
+  inset: 0.45rem 0.85rem;
+}
+
+.shell__name {
+  display: block;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.shell__portal {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  line-height: 1.15;
+}
+
+.shell__nav {
+  display: flex;
+  gap: 0.25rem;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.shell__link {
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius-sm);
+  color: var(--ink-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.shell__link:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.shell__link.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.shell__account {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.shell__user {
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell__main {
+  max-width: var(--max-width);
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.75rem 1.25rem 4rem;
+  flex: 1;
+}
+
+/* Below this the three blocks stop fitting on one line. Left to wrap on their own, the nav
+ * shrinks and breaks internally while the account block stays inline beside it, which reads
+ * as one jumbled row rather than two tidy ones. Giving the nav a full-width row of its own
+ * makes the wrap deliberate. */
+@media (max-width: 900px) {
+  .shell__inner {
+    gap: 0.6rem 0.75rem;
+  }
+  .shell__nav {
+    order: 3;
+    flex-basis: 100%;
+  }
+  .shell__account {
+    margin-left: auto;
+  }
+}

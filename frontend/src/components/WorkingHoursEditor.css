@@ -1,0 +1,64 @@
+.week {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.week__day {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.week__day.is-on {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+
+.week__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 9rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.week__toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.week__times {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.week__times .input {
+  width: auto;
+  min-width: 7rem;
+}
+
+.week__times .input:disabled {
+  background: var(--surface-sunken);
+  color: var(--ink-faint);
+  cursor: not-allowed;
+}
+
+.week__dash {
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+.week__bulk {
+  margin-top: 0.2rem;
+}
