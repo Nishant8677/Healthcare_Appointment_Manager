@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import time
+from datetime import UTC, date, datetime, time
 from itertools import pairwise
+from zoneinfo import ZoneInfo
 
 from app.core.exceptions import InvalidSchedule
 
@@ -150,6 +151,44 @@ def _suggest_end_times(window: WorkingWindow, slot_duration_minutes: int) -> str
     if len(valid) == 1:
         return f"Try ending at {valid[0]}."
     return f"Try ending at {valid[0]} or {valid[1]}."
+
+
+def slot_starts_for_weekday(
+    windows: Iterable[WorkingWindow], slot_duration_minutes: int, weekday: int
+) -> list[time]:
+    """Every appointment start time on one weekday, in order.
+
+    Pure: takes the doctor's windows and returns wall-clock times. Turning those into real
+    instants needs a calendar date and a timezone, which is the caller's job.
+    """
+    starts: list[time] = []
+    for window in windows:
+        if window.weekday != weekday:
+            continue
+        for index in range(slot_count(window, slot_duration_minutes)):
+            offset = window.start_minutes + index * slot_duration_minutes
+            hours, minutes = divmod(offset, 60)
+            starts.append(time(hour=hours, minute=minutes))
+    return sorted(starts)
+
+
+def combine_in_zone(day: date, local_time: time, zone: ZoneInfo) -> datetime | None:
+    """Turn a wall-clock time on a date into the UTC instant it refers to.
+
+    Returns `None` when that local time does not exist — the hour skipped by a
+    daylight-saving spring-forward. Offering a slot for a moment that never happens would
+    produce an appointment nobody could attend, so those are dropped rather than silently
+    shifted into a neighbouring hour.
+    """
+    naive = datetime.combine(day, local_time)
+    localised = naive.replace(tzinfo=zone)
+    as_utc = localised.astimezone(UTC)
+
+    # Round-trip through the zone: if the wall time came back different, the original local
+    # time did not exist on that date.
+    if as_utc.astimezone(zone).replace(tzinfo=None) != naive:
+        return None
+    return as_utc
 
 
 def _weekday_name(weekday: int) -> str:

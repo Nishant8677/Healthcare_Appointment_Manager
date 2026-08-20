@@ -9,6 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -64,6 +65,15 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_ttl_minutes: int = Field(default=60, gt=0)
 
+    # Doctors' working hours are wall-clock times with no zone of their own; this is the zone
+    # they are read in. Appointments themselves are always stored as UTC instants.
+    clinic_timezone: str = "UTC"
+    # How long a slot stays reserved while the patient completes the symptom form.
+    slot_hold_minutes: int = Field(default=5, gt=0, le=60)
+    # How far ahead patients may book. Bounds slot generation and stops a booking being made
+    # years out, before the clinic's hours for that period are known.
+    booking_horizon_days: int = Field(default=60, gt=0, le=365)
+
     # Comma-separated rather than a JSON list: pydantic-settings parses list-typed fields as
     # JSON, which makes a plain `A,B` value in a hosting dashboard fail in a confusing way.
     cors_origins: str = "http://localhost:5173"
@@ -72,6 +82,17 @@ class Settings(BaseSettings):
     @classmethod
     def _force_async_driver(cls, value: str | None) -> str | None:
         return _normalise_pg_url(value) if isinstance(value, str) else value
+
+    @field_validator("clinic_timezone")
+    @classmethod
+    def _known_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                f"{value!r} is not a known IANA timezone (for example 'Asia/Kolkata')."
+            ) from exc
+        return value
 
     @field_validator("jwt_secret")
     @classmethod
@@ -86,6 +107,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def clinic_zone(self) -> ZoneInfo:
+        return ZoneInfo(self.clinic_timezone)
 
     @property
     def is_production(self) -> bool:

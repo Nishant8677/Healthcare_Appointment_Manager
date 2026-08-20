@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import time
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,7 @@ from app.core.eventloop import configure_event_loop_policy
 from app.core.security import create_access_token, hash_password
 from app.main import create_app
 from app.models import Base, DoctorProfile, User, UserRole
+from app.models.doctor import DoctorWorkingHours
 
 # Must run before pytest-asyncio creates any event loop: on Windows the default loop cannot
 # run the async database driver.
@@ -225,3 +227,43 @@ def auth_header(settings: Settings) -> Callable[[User], dict[str, str]]:
         return {"Authorization": f"Bearer {token}"}
 
     return _header
+
+
+MakePatient = Callable[[], Awaitable[tuple[User, dict[str, str]]]]
+
+
+@pytest_asyncio.fixture
+async def bookable_doctor(db_session: AsyncSession, make_doctor: MakeDoctor) -> DoctorProfile:
+    """A doctor working 09:00-17:00 every day with 30-minute appointments.
+
+    Available on every weekday so tests can pick any future date without first working out
+    which day of the week it lands on.
+    """
+    doctor = await make_doctor(slot_duration_minutes=30)
+    for weekday in range(7):
+        db_session.add(
+            DoctorWorkingHours(
+                doctor_profile_id=doctor.id,
+                weekday=weekday,
+                start_time=time(9, 0),
+                end_time=time(17, 0),
+            )
+        )
+    await db_session.commit()
+    return doctor
+
+
+@pytest_asyncio.fixture
+async def make_patient(
+    make_user: MakeUser, auth_header: Callable[[User], dict[str, str]]
+) -> MakePatient:
+    """Create a patient and their Authorization header together.
+
+    Booking tests routinely need several distinct patients competing for one slot.
+    """
+
+    async def _make() -> tuple[User, dict[str, str]]:
+        user = await make_user(role=UserRole.PATIENT)
+        return user, auth_header(user)
+
+    return _make

@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
 from app import __version__
-from app.api import admin_doctors, auth, health
+from app.api import admin_doctors, appointments, auth, doctors, health
 from app.core.config import Settings, get_settings
 from app.core.db import Database
 from app.core.logging import configure_logging, request_id_var
@@ -113,6 +113,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(admin_doctors.router)
+    app.include_router(doctors.router)
+    app.include_router(appointments.router)
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:

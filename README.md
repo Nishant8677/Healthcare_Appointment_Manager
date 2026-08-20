@@ -5,9 +5,9 @@ and describe their symptoms up front; the doctor gets an AI-generated pre-visit 
 urgency level; after the visit the patient gets a plain-language summary with a medication
 schedule. Both sides stay informed through email and Google Calendar.
 
-> **Status: Phase 2 complete** — foundation, the full database schema, role-based
-> authentication, and admin management of doctors, their weekly availability and their
-> leave. Booking arrives in Phase 3; see [Roadmap](#roadmap) below.
+> **Status: Phase 3 complete** — foundation, schema, authentication, admin doctor
+> management, and booking: slot search, hold-then-confirm, cancellation and rescheduling,
+> with double-booking prevention proven under concurrent load. See [Roadmap](#roadmap).
 
 ---
 
@@ -17,8 +17,8 @@ The hard parts of this system are not the CRUD screens; they are the failure mod
 
 | Problem | Approach |
 | --- | --- |
-| Two patients booking the same slot at once | Postgres row locks inside the booking transaction, backed by a partial unique index as the final guarantee |
-| A patient losing their slot while filling the symptom form | Short-lived `HELD` reservation with a TTL, checked at confirmation time |
+| Two patients booking the same slot at once | A partial unique index decides the race — a row lock cannot, because the contended row does not exist yet. Proven by a test firing 20 simultaneous requests at one slot |
+| A patient losing their slot while filling the symptom form | Short-lived `HELD` reservation; an expired hold is reclaimed at booking time, so no sweeper job is needed |
 | A doctor going on leave over existing bookings | Cascade that cancels, notifies every affected patient and cleans up calendar events |
 | Email or calendar provider being down | Transactional outbox: notifications are rows committed with the booking, delivered by a worker with capped exponential backoff |
 | The LLM being slow, down, or returning malformed output | Summaries are generated out of band and schema-validated; a booking never fails because the model did |
@@ -160,9 +160,29 @@ Interactive documentation is generated from the code at
 | `PUT` | `/admin/doctors/{id}/working-hours` | admin | Replace the complete weekly schedule. |
 | `POST` | `/admin/doctors/{id}/leave` | admin | Record a leave day. |
 | `DELETE` | `/admin/doctors/{id}/leave/{leave_id}` | admin | Remove a leave day. |
+| `GET` | `/doctors` | any signed-in user | Search bookable doctors by specialisation. |
+| `GET` | `/doctors/{id}/slots?date=` | any signed-in user | Free slots on a date, computed live. |
+| `POST` | `/appointments/hold` | patient | Reserve a slot while completing the symptom form. |
+| `POST` | `/appointments/{id}/confirm` | patient | Confirm a held slot with the symptom form. |
+| `POST` | `/appointments/{id}/cancel` | owner / doctor / admin | Cancel, recording who cancelled. |
+| `POST` | `/appointments/{id}/reschedule` | patient | Move to another slot in one transaction. |
+| `GET` | `/appointments` | any signed-in user | Scoped by role: own bookings, own schedule, or all. |
 
 Doctor and admin accounts are created by an admin rather than by self-registration, so
 `/auth/register` cannot be used to obtain elevated access.
+
+### Double-booking prevention
+
+Two patients pressing "book" at the same instant is the failure this project is judged on, and
+the protection is not the one usually reached for. When two requests contend for a *free* slot
+there is no row to lock, so `SELECT ... FOR UPDATE` cannot help — the guarantee comes from a
+partial unique index that lets exactly one insert commit and turns the rest into a clean `409`.
+Row locking is used for the second race, confirming a hold that already exists.
+
+`tests/test_booking_concurrency.py` fires twenty concurrent requests from twenty distinct
+patients at one slot and asserts exactly one `201`, nineteen `409`, no `500`, and exactly one
+occupying row in the database. Full reasoning in
+[ADR 0004](docs/adr/0004-booking-and-double-booking-prevention.md).
 
 ### Scheduling rules
 
@@ -194,6 +214,9 @@ Every variable the backend reads. See [`.env.example`](.env.example) for a copya
 | `JWT_SECRET` | **yes** | — | Access-token signing key; must be at least 32 characters. |
 | `JWT_ALGORITHM` | no | `HS256` | JWT signing algorithm. |
 | `ACCESS_TOKEN_TTL_MINUTES` | no | `60` | Access-token lifetime. |
+| `CLINIC_TIMEZONE` | no | `UTC` | IANA zone the doctors' working hours are written in. |
+| `SLOT_HOLD_MINUTES` | no | `5` | How long a slot stays reserved during the symptom form. |
+| `BOOKING_HORIZON_DAYS` | no | `60` | How far ahead patients may book. |
 | `CORS_ORIGINS` | no | `http://localhost:5173` | Comma-separated allowed frontend origins. |
 
 Variables for email, the LLM provider and Google Calendar are added in their respective phases
@@ -257,7 +280,7 @@ frontend/             React SPA (Phase 8)
 - [x] **Phase 1** — Authentication and the full data model; role-based access for
       patient / doctor / admin.
 - [x] **Phase 2** — Admin doctor management: specialisation, working hours, slot duration, leave.
-- [ ] **Phase 3** — Availability and booking: slot generation, hold-then-confirm, double-booking
+- [x] **Phase 3** — Availability and booking: slot generation, hold-then-confirm, double-booking
       prevention with a concurrent-request test.
 - [ ] **Phase 4** — Notification outbox and email delivery with capped retries.
 - [ ] **Phase 5** — Doctor leave conflict cascade.

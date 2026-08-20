@@ -46,3 +46,43 @@ class DuplicateLeaveDay(DomainError):
 
 class LeaveDayNotFound(DomainError):
     """No leave day with that id for this doctor."""
+
+
+class AppointmentNotFound(DomainError):
+    """No appointment with that id that this user is allowed to see.
+
+    Deliberately also raised when the appointment exists but belongs to somebody else:
+    a distinct "forbidden" would confirm that another patient holds that appointment id.
+    """
+
+
+class SlotUnavailable(DomainError):
+    """The requested time is not a bookable slot.
+
+    Outside the doctor's working hours, on a leave day, in the past, beyond the booking
+    horizon, or already occupied when the request was checked.
+    """
+
+
+class SlotTaken(DomainError):
+    """Another patient took the slot between the availability check and the write.
+
+    Distinct from `SlotUnavailable` because it is a lost race rather than a bad request —
+    the slot genuinely was free moments earlier.
+    """
+
+
+class HoldExpired(DomainError):
+    """The reservation lapsed before the patient confirmed it."""
+
+
+class ActiveHoldExists(DomainError):
+    """This patient already holds a slot that they have not confirmed or released."""
+
+
+class AppointmentNotCancellable(DomainError):
+    """The appointment is already finished or cancelled."""
+
+
+class AppointmentNotConfirmable(DomainError):
+    """The appointment is not in a state that can be confirmed."""
