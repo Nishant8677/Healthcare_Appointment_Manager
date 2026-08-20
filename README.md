@@ -5,10 +5,24 @@ and describe their symptoms up front; the doctor gets an AI-generated pre-visit 
 urgency level; after the visit the patient gets a plain-language summary with a medication
 schedule. Both sides stay informed through email and Google Calendar.
 
-> **Status: Phase 8 complete** — the three portals are live over a backend with proven
-> double-booking prevention, a transactional notification outbox, the doctor-leave cascade, AI
-> summaries that degrade safely when the model is unavailable, and Google Calendar sync built
-> as a desired-state reconciler. See [Roadmap](#roadmap).
+> **Status: complete.** Three portals over a backend with proven double-booking prevention,
+> a transactional notification outbox, the doctor-leave cascade, AI summaries that degrade
+> safely when the model is unavailable, and Google Calendar sync built as a desired-state
+> reconciler. Deployable from [`render.yaml`](render.yaml), with one command for demo data.
+
+## Where everything is
+
+| Looking for | It is here |
+| --- | --- |
+| **The 800-word design write-up** | [docs/design-writeup.md](docs/design-writeup.md) |
+| Setup and how to run it | [Quickstart](#quickstart), below |
+| Deploying it | [docs/deployment.md](docs/deployment.md) and [`render.yaml`](render.yaml) |
+| API documentation | [docs/api.md](docs/api.md), and `/docs` on a running server |
+| Database schema | [docs/data-model.md](docs/data-model.md) |
+| The LLM prompts | [docs/llm-prompts.md](docs/llm-prompts.md) |
+| Google Calendar setup | [docs/google-calendar-setup.md](docs/google-calendar-setup.md) |
+| Environment variables | [`.env.example`](.env.example) and [Configuration](#configuration) |
+| Why each decision was made | [docs/adr/](docs/adr/) — one record per phase |
 
 ---
 
@@ -26,7 +40,7 @@ The hard parts of this system are not the CRUD screens; they are the failure mod
 | A cancellation reaching Google before the booking it cancels | The calendar queue holds *desired state*, one row per calendar per appointment, overwritten in place. There is no sequence of operations to apply out of order — a live event for a cancelled appointment is not expressible |
 | A calendar write that timed out after Google committed it | Event ids are derived from the appointment and user rather than assigned by Google, so a retry addresses the same event. Creation is idempotent and orphaned events cannot occur |
 
-Each of these is covered in the design write-up (Phase 9) as it is implemented. The schema
+Each of these is covered in the [design write-up](docs/design-writeup.md). The schema
 and the constraints that enforce several of these guarantees are documented in
 [docs/data-model.md](docs/data-model.md); the reasoning behind each decision is recorded in
 [docs/adr/](docs/adr/).
@@ -132,6 +146,27 @@ Open <http://localhost:5173>. The port is fixed because it is what the backend's
 `CORS_ORIGINS` allows, so a fresh checkout works with no configuration on either side.
 Frontend details are in [frontend/README.md](frontend/README.md).
 
+### Load the demo data (optional)
+
+Builds a clinic that already looks lived-in — three doctors on different schedules, three
+patients, and appointments in every state: one upcoming with a symptom form, one completed
+with a prescription and its medication reminders, and one the clinic cancelled because a
+doctor took leave. All of it created through the real services, so it is the system's own
+output rather than a fixture arranged to look like one.
+
+```bash
+cd backend && DEMO_PASSWORD='choose-a-password' uv run python -m app.cli seed-demo
+```
+
+It prints the accounts and refuses to run against a database that already holds accounts it
+did not create. There are no passwords in the repository — record the one you choose.
+
+| Role | Email |
+| --- | --- |
+| Admin | `admin@clinic.demo` |
+| Doctors | `asha.rao@clinic.demo` · `nikhil.bose@clinic.demo` · `fatima.khan@clinic.demo` |
+| Patients | `meera.iyer@example.com` · `daniel.osei@example.com` · `priya.nair@example.com` |
+
 ### Create the first admin
 
 Admins deliberately cannot self-register, and only an admin can create doctor accounts — so
@@ -163,8 +198,9 @@ instead of killing the container.
 
 ## API
 
-Interactive documentation is generated from the code at
-<http://localhost:8000/docs>. Implemented so far:
+Interactive documentation is generated from the code at <http://localhost:8000/docs>.
+[docs/api.md](docs/api.md) is the companion to it: the flows in the order you would actually
+perform them, with the error responses that matter. Every endpoint:
 
 | Method | Path | Access | Purpose |
 | --- | --- | --- | --- |
@@ -386,6 +422,28 @@ seven-day testing-mode caveat — is in
 
 ---
 
+## Deployment
+
+Everything is described by [`render.yaml`](render.yaml): a PostgreSQL database, the API (which
+also runs the three background workers), and the portals as a static site. One provider, one
+dashboard, one deploy log.
+
+```bash
+gh repo create Healthcare_Appointment_Manager --public --source=. --remote=origin --push
+```
+
+Then **New → Blueprint** in Render, pointed at the repository. Two values have to be set after
+the first deploy, because neither URL exists until Render has created the services: the API's
+`CORS_ORIGINS` (the portals' URL) and the portals' `VITE_API_BASE_URL` (the API's URL). Full
+steps, the optional integrations, and how to deploy somewhere else:
+[docs/deployment.md](docs/deployment.md).
+
+Two things about free tiers, so nothing looks broken that is not: the API sleeps after 15
+minutes of inactivity and takes 30–60 seconds to wake, and a free Render database is deleted
+after 30 days.
+
+---
+
 ## Development
 
 Run from the `backend/` directory:
@@ -423,7 +481,7 @@ npm test && npm run typecheck && npm run lint
 npm run build
 ```
 
-**387 tests in total** — 329 backend, 58 frontend.
+**400 tests in total** — 342 backend, 58 frontend.
 
 ---
 
@@ -471,7 +529,8 @@ frontend/
       encrypted refresh tokens, and a desired-state reconciler that survives Google being down.
 - [x] **Phase 8** — Patient, doctor and admin portals in React, with three runtime
       dependencies and the role separation enforced at the routing layer.
-- [ ] **Phase 9** — Deployment, seed data, API documentation and the design write-up.
+- [x] **Phase 9** — Deployment blueprint, demo seed, API documentation and the design
+      write-up.
 
 ---
 
