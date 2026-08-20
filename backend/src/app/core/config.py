@@ -85,12 +85,34 @@ class Settings(BaseSettings):
     email_from_name: str = "The Clinic"
     email_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
 
+    # --- LLM summaries ---
+    # "stub" returns a deterministic canned summary: the default for local development and
+    # tests, so no API key is needed and no request is ever billed by accident.
+    llm_provider: Literal["stub", "anthropic"] = "stub"
+    llm_api_key: SecretStr | None = None
+    llm_model: str = "claude-opus-5"
+    llm_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    llm_max_output_tokens: int = Field(default=2000, gt=0, le=16000)
+    # Attempts before a summary is parked as failed. A summary is never on the critical path,
+    # so failing one has no effect on the appointment itself.
+    llm_max_attempts: int = Field(default=4, gt=0, le=10)
+
+    # --- Medication reminders ---
+    # Reminders are generated from the prescription's structured fields, never from LLM text.
+    # Long courses are capped so one prescription cannot queue thousands of messages.
+    medication_reminder_max_days: int = Field(default=14, gt=0, le=90)
+    # Doses are spread across this waking window in the clinic's timezone.
+    medication_first_dose_hour: int = Field(default=8, ge=0, le=23)
+    medication_last_dose_hour: int = Field(default=20, ge=0, le=23)
+
     # --- Notification worker ---
     notification_worker_enabled: bool = True
     notification_poll_seconds: float = Field(default=15.0, gt=0, le=300)
     notification_batch_size: int = Field(default=20, gt=0, le=200)
     # Attempts before a job is parked as failed for a human to look at.
     notification_max_attempts: int = Field(default=4, gt=0, le=10)
+    summary_poll_seconds: float = Field(default=20.0, gt=0, le=300)
+    summary_batch_size: int = Field(default=10, gt=0, le=100)
 
     # Comma-separated rather than a JSON list: pydantic-settings parses list-typed fields as
     # JSON, which makes a plain `A,B` value in a hosting dashboard fail in a confusing way.

@@ -28,9 +28,12 @@ from app.core.exceptions import (
     HoldExpired,
     SlotTaken,
     SlotUnavailable,
+    VisitAlreadyRecorded,
+    VisitNotCompletable,
 )
 from app.models.appointment import Appointment
-from app.models.enums import UserRole
+from app.models.clinical import AiSummary
+from app.models.enums import SummaryStatus, SummaryType, UserRole
 from app.models.user import User
 from app.schemas.appointment import (
     AppointmentResponse,
@@ -42,12 +45,19 @@ from app.schemas.appointment import (
     SymptomFormRequest,
     SymptomReportResponse,
 )
-from app.services import booking_service
+from app.schemas.visit import (
+    RecordVisitRequest,
+    RecordVisitResponse,
+    SummaryResponse,
+)
+from app.services import booking_service, summaries, visit_service
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
 
 # Booking is a patient action; doctors and admins manage appointments through their own views.
 patient_only = require_roles(UserRole.PATIENT)
+# Recording clinical notes is the doctor's job; an admin may do it for them.
+clinical_staff = require_roles(UserRole.DOCTOR, UserRole.ADMIN)
 
 
 def _to_response(appointment: Appointment) -> AppointmentResponse:
@@ -238,3 +248,133 @@ async def list_appointments(
         session, user=user, include_cancelled=include_cancelled
     )
     return [_to_response(appointment) for appointment in appointments]
+
+
+def _summary_response(summary: AiSummary) -> SummaryResponse:
+    """Report the summary honestly, including when it is not there.
+
+    A pending or failed summary is returned as such rather than as `null`, because "being
+    prepared" and "could not be produced" mean different things to a doctor deciding whether
+    to wait.
+    """
+    reason: str | None = None
+    if summary.status is SummaryStatus.PENDING:
+        reason = "The summary is still being prepared."
+    elif summary.status is SummaryStatus.FAILED:
+        reason = "The summary could not be generated. The clinical record is unaffected."
+
+    return SummaryResponse(
+        summary_type=summary.summary_type,
+        status=summary.status,
+        urgency=summary.urgency,
+        content=summary.content,
+        prompt_version=summary.prompt_version,
+        model=summary.model,
+        attempts=summary.attempts,
+        unavailable_reason=reason,
+    )
+
+
+@router.post(
+    "/{appointment_id}/visit",
+    response_model=RecordVisitResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Record clinical notes and a prescription",
+)
+async def record_visit(
+    appointment_id: uuid.UUID,
+    payload: RecordVisitRequest,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+    doctor: User = Depends(clinical_staff),
+) -> RecordVisitResponse:
+    """Close out a visit.
+
+    The patient-friendly summary is *requested* here, not generated: the doctor is not made
+    to wait on a language model before moving to the next patient. Medication reminders are
+    scheduled from the prescription's structured fields.
+    """
+    try:
+        outcome = await visit_service.record_visit(
+            session,
+            appointment_id=appointment_id,
+            doctor=doctor,
+            clinical_notes=payload.clinical_notes,
+            settings=settings,
+            medications=[
+                visit_service.MedicationInput(
+                    drug_name=medication.drug_name,
+                    dosage=medication.dosage,
+                    times_per_day=medication.times_per_day,
+                    duration_days=medication.duration_days,
+                    instructions=medication.instructions,
+                )
+                for medication in payload.medications
+            ],
+            follow_up_date=payload.follow_up_date,
+        )
+    except AppointmentNotFound:
+        raise _not_found(appointment_id) from None
+    except VisitAlreadyRecorded:
+        raise _conflict("Clinical notes have already been recorded for this appointment.") from None
+    except VisitNotCompletable as error:
+        raise _conflict(str(error)) from None
+
+    return RecordVisitResponse(
+        appointment_id=outcome.appointment.id,
+        status=outcome.appointment.status.value,
+        completed_at=outcome.appointment.updated_at,
+        reminders_scheduled=outcome.reminders_scheduled,
+    )
+
+
+@router.get(
+    "/{appointment_id}/pre-visit-summary",
+    response_model=SummaryResponse,
+    summary="The doctor's brief for an appointment",
+)
+async def pre_visit_summary(
+    appointment_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(clinical_staff),
+) -> SummaryResponse:
+    """Clinical staff only. A patient must not see a triage judgement about themselves that
+    no clinician has reviewed."""
+    appointment = await _visible_appointment(session, appointment_id, user)
+    summary = await summaries.summary_for(session, appointment.id, SummaryType.PRE_VISIT)
+    if summary is None:
+        raise _not_found(appointment_id)
+    return _summary_response(summary)
+
+
+@router.get(
+    "/{appointment_id}/post-visit-summary",
+    response_model=SummaryResponse,
+    summary="The patient's plain-language summary",
+)
+async def post_visit_summary(
+    appointment_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> SummaryResponse:
+    appointment = await _visible_appointment(session, appointment_id, user)
+    summary = await summaries.summary_for(session, appointment.id, SummaryType.POST_VISIT)
+    if summary is None:
+        raise _not_found(appointment_id)
+    return _summary_response(summary)
+
+
+async def _visible_appointment(
+    session: AsyncSession, appointment_id: uuid.UUID, user: User
+) -> Appointment:
+    """Load an appointment this user is entitled to see, or report it missing."""
+    try:
+        appointment = await booking_service.load_appointment(session, appointment_id)
+    except AppointmentNotFound:
+        raise _not_found(appointment_id) from None
+
+    if user.role is UserRole.PATIENT and appointment.patient_id != user.id:
+        raise _not_found(appointment_id)
+    if user.role is UserRole.DOCTOR and appointment.doctor_profile.user_id != user.id:
+        raise _not_found(appointment_id)
+    return appointment

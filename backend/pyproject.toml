@@ -14,6 +14,7 @@ dependencies = [
     "pyjwt",
     "argon2-cffi",
     "httpx",
+    "anthropic",
 ]
 
 [dependency-groups]

@@ -22,7 +22,10 @@ from app.core.db import Database
 from app.core.logging import configure_logging, request_id_var
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 from app.services.email import build_sender
-from app.workers.notification_worker import NotificationWorker
+from app.services.llm import build_llm_client
+from app.services.summaries import generate_due_summaries
+from app.workers.notification_worker import deliver_once
+from app.workers.runner import PollingWorker
 
 logger = logging.getLogger(__name__)
 
@@ -72,23 +75,48 @@ def _build_lifespan(
             # instance can recover on its own once the database returns.
             logger.warning("continuing startup in degraded mode; /readyz will report down")
 
-        worker: NotificationWorker | None = None
+        workers: list[PollingWorker] = []
         if settings.notification_worker_enabled:
-            # Built here rather than per-request: one sender, one loop, owned by the app.
-            worker = NotificationWorker(
-                database,
-                build_sender(settings),
-                poll_seconds=settings.notification_poll_seconds,
-                batch_size=settings.notification_batch_size,
-                max_attempts=settings.notification_max_attempts,
+            # Built here rather than per-request: one sender, one client, owned by the app.
+            sender = build_sender(settings)
+            llm_client = build_llm_client(settings)
+
+            workers.append(
+                PollingWorker(
+                    "notification-worker",
+                    database,
+                    lambda session: deliver_once(
+                        session,
+                        sender,
+                        limit=settings.notification_batch_size,
+                        max_attempts=settings.notification_max_attempts,
+                    ),
+                    poll_seconds=settings.notification_poll_seconds,
+                )
             )
-            worker.start()
-        app.state.notification_worker = worker
+            workers.append(
+                PollingWorker(
+                    "summary-worker",
+                    database,
+                    lambda session: generate_due_summaries(
+                        session,
+                        llm_client,
+                        model=settings.llm_model,
+                        max_output_tokens=settings.llm_max_output_tokens,
+                        limit=settings.summary_batch_size,
+                        max_attempts=settings.llm_max_attempts,
+                    ),
+                    poll_seconds=settings.summary_poll_seconds,
+                )
+            )
+            for worker in workers:
+                worker.start()
+        app.state.workers = workers
 
         try:
             yield
         finally:
-            if worker is not None:
+            for worker in workers:
                 await worker.stop()
             await database.dispose()
             logger.info("application shutdown complete")

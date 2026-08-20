@@ -66,6 +66,9 @@ class AiSummary(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     model: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # Added in Phase 6 alongside the generation worker: without it a failing model would be
+    # retried on every poll instead of backing off.
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (

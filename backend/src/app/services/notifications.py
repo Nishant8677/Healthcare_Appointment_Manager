@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -21,6 +21,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.appointment import Appointment
+from app.models.clinical import Prescription
 from app.models.doctor import DoctorProfile
 from app.models.enums import NotificationStatus, NotificationType
 from app.models.notification import NotificationJob
@@ -213,6 +214,101 @@ def enqueue_leave_conflict(
         scheduled_for=reference,
         appointment_id=appointment.id,
     )
+
+
+def dose_times(times_per_day: int, *, first_hour: int, last_hour: int) -> list[int]:
+    """Hours of the day for `times_per_day` doses, spread across the waking window.
+
+    Three doses become 08:00 / 14:00 / 20:00 rather than three arbitrary times. Reminders a
+    patient can predict are reminders they act on.
+    """
+    if times_per_day <= 1:
+        return [(first_hour + last_hour) // 2]
+    if times_per_day == 2:
+        return [first_hour, last_hour]
+
+    span = last_hour - first_hour
+    return [
+        first_hour + round(span * index / (times_per_day - 1)) for index in range(times_per_day)
+    ]
+
+
+def enqueue_medication_reminders(
+    session: AsyncSession,
+    *,
+    appointment: Appointment,
+    patient: User,
+    prescription: Prescription,
+    zone: ZoneInfo,
+    max_days: int,
+    first_hour: int,
+    last_hour: int,
+    now: datetime | None = None,
+) -> int:
+    """Queue one reminder per dose, derived from the prescription's structured fields.
+
+    Never from the model's prose. The LLM writes the patient's explanation; `times_per_day`
+    and `duration_days` — typed by the doctor and constrained by the database — drive the
+    actual alarms. A reminder schedule parsed out of generated text would be a medication
+    error waiting to happen.
+
+    Returns how many were queued. Long courses are capped at `max_days` so one prescription
+    cannot queue thousands of messages; the cap is logged rather than applied silently.
+    """
+    reference = now or datetime.now(UTC)
+    queued = 0
+
+    for medication in prescription.medications:
+        covered_days = min(medication.duration_days, max_days)
+        if covered_days < medication.duration_days:
+            logger.info(
+                "medication reminders capped",
+                extra={
+                    "drug_name": medication.drug_name,
+                    "prescribed_days": medication.duration_days,
+                    "reminder_days": covered_days,
+                },
+            )
+
+        hours = dose_times(medication.times_per_day, first_hour=first_hour, last_hour=last_hour)
+        start_day = reference.astimezone(zone).date()
+        wanted = covered_days * medication.times_per_day
+
+        # Walk forward through dose slots, skipping any that have already passed today, until
+        # the full course is scheduled. Counting *doses* rather than days matters: a course
+        # prescribed at 4pm still owes the patient every dose, so it simply runs a little
+        # further into the calendar rather than quietly losing this morning's reminders.
+        scheduled_for_drug = 0
+        day_offset = 0
+        while scheduled_for_drug < wanted and day_offset <= covered_days + 1:
+            for hour in hours:
+                if scheduled_for_drug >= wanted:
+                    break
+                local = datetime.combine(
+                    start_day + timedelta(days=day_offset), time(hour=hour), tzinfo=zone
+                )
+                due = local.astimezone(UTC)
+                if due <= reference:
+                    continue
+
+                enqueue(
+                    session,
+                    notification_type=NotificationType.MEDICATION_REMINDER,
+                    recipient=patient,
+                    payload={
+                        "drug_name": medication.drug_name,
+                        "dosage": medication.dosage,
+                        "instructions": medication.instructions,
+                        "doctor_name": appointment.doctor_profile.user.full_name,
+                    },
+                    scheduled_for=due,
+                    appointment_id=appointment.id,
+                )
+                scheduled_for_drug += 1
+                queued += 1
+            day_offset += 1
+
+    return queued
 
 
 async def drop_pending_reminders(session: AsyncSession, appointment_id: uuid.UUID) -> None:

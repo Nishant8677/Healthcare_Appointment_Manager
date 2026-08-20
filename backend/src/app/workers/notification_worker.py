@@ -12,7 +12,6 @@ the service can be scaled out without a leader election or a distributed lock.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -20,7 +19,6 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import Database
 from app.models.enums import NotificationStatus
 from app.models.notification import NotificationJob
 from app.services import notifications
@@ -146,72 +144,3 @@ async def deliver_once(
 
     await session.commit()
     return DeliveryReport(sent=sent, retried=retried, failed=failed)
-
-
-class NotificationWorker:
-    """Runs `deliver_once` on a loop for the lifetime of the application."""
-
-    def __init__(
-        self,
-        database: Database,
-        sender: EmailSender,
-        *,
-        poll_seconds: float,
-        batch_size: int,
-        max_attempts: int,
-    ) -> None:
-        self._database = database
-        self._sender = sender
-        self._poll_seconds = poll_seconds
-        self._batch_size = batch_size
-        self._max_attempts = max_attempts
-        self._task: asyncio.Task[None] | None = None
-
-    def start(self) -> None:
-        if self._task is not None:
-            return
-        self._task = asyncio.create_task(self._run(), name="notification-worker")
-        logger.info("notification worker started", extra={"poll_seconds": self._poll_seconds})
-
-    async def stop(self) -> None:
-        if self._task is None:
-            return
-        self._task.cancel()
-        try:
-            await self._task
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self._task = None
-        logger.info("notification worker stopped")
-
-    async def _run(self) -> None:
-        while True:
-            try:
-                session = self._database.session()
-                try:
-                    report = await deliver_once(
-                        session,
-                        self._sender,
-                        limit=self._batch_size,
-                        max_attempts=self._max_attempts,
-                    )
-                    if report.processed:
-                        logger.info(
-                            "notification batch processed",
-                            extra={
-                                "sent": report.sent,
-                                "retried": report.retried,
-                                "failed": report.failed,
-                            },
-                        )
-                finally:
-                    await session.close()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # The loop must outlive any single failure — a database blip should not stop
-                # notifications for the rest of the process's life.
-                logger.exception("notification worker pass failed")
-
-            await asyncio.sleep(self._poll_seconds)

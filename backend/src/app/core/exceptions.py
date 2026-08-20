@@ -98,3 +98,11 @@ class LeaveConflictsExist(DomainError):
     def __init__(self, count: int) -> None:
         self.count = count
         super().__init__(f"{count} appointment(s) already booked on that date")
+
+
+class VisitNotCompletable(DomainError):
+    """The appointment is not in a state where a visit can be recorded."""
+
+
+class VisitAlreadyRecorded(DomainError):
+    """Clinical notes have already been filed for this appointment."""

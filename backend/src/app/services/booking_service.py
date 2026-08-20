@@ -39,9 +39,9 @@ from app.core.exceptions import (
 )
 from app.models.appointment import Appointment, SymptomReport
 from app.models.doctor import DoctorProfile
-from app.models.enums import AppointmentStatus, UserRole
+from app.models.enums import AppointmentStatus, SummaryType, UserRole
 from app.models.user import User
-from app.services import notifications
+from app.services import notifications, summaries
 from app.services.availability import available_slots
 from app.services.doctor_service import get_doctor
 
@@ -250,6 +250,15 @@ async def confirm_hold(
 
     # Queued inside this transaction, not sent from it. If the commit below fails, the
     # confirmation emails disappear with the confirmation itself.
+    # Requested inside this transaction, generated in the background. A slow or offline
+    # model delays the doctor's brief; it never blocks the patient's booking.
+    summaries.queue_summary(
+        session,
+        appointment_id=appointment.id,
+        summary_type=SummaryType.PRE_VISIT,
+        model=settings.llm_model,
+    )
+
     doctor = await get_doctor(session, appointment.doctor_profile_id)
     notifications.enqueue_booking_confirmation(
         session,
