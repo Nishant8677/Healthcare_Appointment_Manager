@@ -1,0 +1,23 @@
+# Local development database only. Production uses a managed Postgres (Neon/Render).
+# Credentials here are intentionally weak local-only defaults and are never used in deployment.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ham-postgres
+    environment:
+      POSTGRES_USER: ham
+      POSTGRES_PASSWORD: ham_local_dev
+      POSTGRES_DB: healthcare
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ham -d healthcare"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

@@ -1,0 +1,38 @@
+# --- Secrets (never commit) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+token.json
+service-account*.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Node / frontend ---
+node_modules/
+dist/
+.next/
+out/
+*.local
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Local infra ---
+pgdata/
+*.log
