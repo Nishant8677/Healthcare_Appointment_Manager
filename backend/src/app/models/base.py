@@ -4,10 +4,31 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
+from typing import TypeVar
 
 from sqlalchemy import DateTime, MetaData, func, text
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+EnumT = TypeVar("EnumT", bound=StrEnum)
+
+
+def pg_enum(enum_cls: type[EnumT], name: str) -> SAEnum:
+    """A native PostgreSQL enum column type storing the member *values*.
+
+    SQLAlchemy stores member names by default, which would put `CANCELLED_BY_CLINIC` in the
+    database while the application reads `cancelled_by_clinic`. `values_callable` keeps the
+    stored representation identical to what the API emits.
+    """
+    return SAEnum(
+        enum_cls,
+        name=name,
+        native_enum=True,
+        values_callable=lambda enum: [member.value for member in enum],
+    )
+
 
 # Explicit naming so Alembic autogenerate produces stable, human-readable constraint names.
 # Without this, dropping a unique index in a later migration means guessing its generated name.

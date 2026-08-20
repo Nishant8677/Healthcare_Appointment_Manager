@@ -81,8 +81,9 @@ editing a URL — an avoidable exposure of medical data.
 constraints, checks, foreign keys and primary keys.
 
 **Why.** Alembic can only drop or alter a constraint it can name. Without a convention, the
-partial unique index added in Phase 3 gets an auto-generated name that a later migration would
-have to guess at.
+partial unique index that protects against double booking would get an auto-generated name
+that a later migration would have to guess at. (That index landed with the rest of the schema
+in Phase 1; Phase 3 adds the booking logic above it.)
 
 ## 9. No message broker
 

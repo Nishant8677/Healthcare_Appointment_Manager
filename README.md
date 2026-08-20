@@ -5,8 +5,8 @@ and describe their symptoms up front; the doctor gets an AI-generated pre-visit 
 urgency level; after the visit the patient gets a plain-language summary with a medication
 schedule. Both sides stay informed through email and Google Calendar.
 
-> **Status: Phase 0 complete** — project foundation, configuration, database layer, health
-> probes and the test harness are in place. Feature phases are tracked in
+> **Status: Phase 1 complete** — foundation, the full database schema, and role-based
+> authentication for patients, doctors and admins. Booking arrives in Phase 3; see
 > [Roadmap](#roadmap) below.
 
 ---
@@ -23,7 +23,10 @@ The hard parts of this system are not the CRUD screens; they are the failure mod
 | Email or calendar provider being down | Transactional outbox: notifications are rows committed with the booking, delivered by a worker with capped exponential backoff |
 | The LLM being slow, down, or returning malformed output | Summaries are generated out of band and schema-validated; a booking never fails because the model did |
 
-Each of these is covered in the design write-up (Phase 9) as it is implemented.
+Each of these is covered in the design write-up (Phase 9) as it is implemented. The schema
+and the constraints that enforce several of these guarantees are documented in
+[docs/data-model.md](docs/data-model.md); the reasoning behind each decision is recorded in
+[docs/adr/](docs/adr/).
 
 ---
 
@@ -125,6 +128,24 @@ instead of killing the container.
 
 ---
 
+## API
+
+Interactive documentation is generated from the code at
+<http://localhost:8000/docs>. Implemented so far:
+
+| Method | Path | Access | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/healthz` | public | Liveness. Never touches the database. |
+| `GET` | `/readyz` | public | Readiness. `503` when the database is unreachable. |
+| `POST` | `/auth/register` | public | Create a patient account. Always a patient — the role is never taken from the request. |
+| `POST` | `/auth/login` | public | Exchange credentials for a bearer token. |
+| `GET` | `/auth/me` | any signed-in user | The current user. |
+
+Doctor and admin accounts are created by an admin rather than by self-registration, so
+`/auth/register` cannot be used to obtain elevated access.
+
+---
+
 ## Configuration
 
 Every variable the backend reads. See [`.env.example`](.env.example) for a copyable template.
@@ -199,7 +220,7 @@ frontend/             React SPA (Phase 8)
 
 - [x] **Phase 0** — Foundation: configuration, async database layer, structured logging with
       request correlation, health probes, migrations, lint/type/test tooling.
-- [ ] **Phase 1** — Authentication and the full data model; role-based access for
+- [x] **Phase 1** — Authentication and the full data model; role-based access for
       patient / doctor / admin.
 - [ ] **Phase 2** — Admin doctor management: specialisation, working hours, slot duration, leave.
 - [ ] **Phase 3** — Availability and booking: slot generation, hold-then-confirm, double-booking

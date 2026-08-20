@@ -18,13 +18,26 @@ configure_event_loop_policy()
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # `disable_existing_loggers=False` is essential, not cosmetic. The default (True) turns
+    # off every logger that already exists, so when the test suite runs migrations in-process
+    # the application's own loggers go silent for the rest of the session — which silently
+    # disabled the request-correlation logging and its regression test.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
 
 def _database_url() -> str:
-    """Prefer an explicit `-x url=...` override, else the configured application database."""
+    """Resolve the target database.
+
+    Precedence: a URL injected programmatically (the test suite migrates a throwaway
+    database this way), then an explicit `-x url=...` on the command line, then the
+    application's configured database.
+    """
+    injected = config.attributes.get("db_url")
+    if isinstance(injected, str) and injected:
+        return injected
+
     override = context.get_x_argument(as_dictionary=True).get("url")
     return override or get_settings().database_url
 
