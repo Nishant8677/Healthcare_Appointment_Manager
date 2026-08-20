@@ -5,9 +5,9 @@ and describe their symptoms up front; the doctor gets an AI-generated pre-visit 
 urgency level; after the visit the patient gets a plain-language summary with a medication
 schedule. Both sides stay informed through email and Google Calendar.
 
-> **Status: Phase 3 complete** — foundation, schema, authentication, admin doctor
-> management, and booking: slot search, hold-then-confirm, cancellation and rescheduling,
-> with double-booking prevention proven under concurrent load. See [Roadmap](#roadmap).
+> **Status: Phase 4 complete** — foundation, schema, authentication, doctor management,
+> booking with proven double-booking prevention, and a transactional notification outbox
+> that survives the email provider being down. See [Roadmap](#roadmap).
 
 ---
 
@@ -20,7 +20,7 @@ The hard parts of this system are not the CRUD screens; they are the failure mod
 | Two patients booking the same slot at once | A partial unique index decides the race — a row lock cannot, because the contended row does not exist yet. Proven by a test firing 20 simultaneous requests at one slot |
 | A patient losing their slot while filling the symptom form | Short-lived `HELD` reservation; an expired hold is reclaimed at booking time, so no sweeper job is needed |
 | A doctor going on leave over existing bookings | Cascade that cancels, notifies every affected patient and cleans up calendar events |
-| Email or calendar provider being down | Transactional outbox: notifications are rows committed with the booking, delivered by a worker with capped exponential backoff |
+| Email or calendar provider being down | Transactional outbox: a notification is a row committed *with* the booking, delivered later by a worker with capped backoff. Nothing is sent from the request |
 | The LLM being slow, down, or returning malformed output | Summaries are generated out of band and schema-validated; a booking never fails because the model did |
 
 Each of these is covered in the design write-up (Phase 9) as it is implemented. The schema
@@ -60,10 +60,11 @@ HTTP concerns only, and `workers/` drives everything asynchronous. External call
 calendar) sit behind service interfaces so they can be substituted in tests without network
 access.
 
-**Stack:** FastAPI · SQLAlchemy 2 (async) · PostgreSQL 16 · Alembic · React (Vite) ·
-APScheduler. Dependencies are kept deliberately minimal — no message broker or task queue,
-because a polled jobs table meets the reliability requirement at this scale with far less
-operational surface.
+**Stack:** FastAPI · SQLAlchemy 2 (async) · PostgreSQL 16 · Alembic · React (Vite).
+Dependencies are kept deliberately minimal — no message broker, task queue or scheduler
+library. A broker would actually *break* the outbox guarantee, since an enqueue to it cannot
+participate in the database transaction; a polled jobs table both meets the requirement and
+removes the operational surface.
 
 ---
 
@@ -167,6 +168,9 @@ Interactive documentation is generated from the code at
 | `POST` | `/appointments/{id}/cancel` | owner / doctor / admin | Cancel, recording who cancelled. |
 | `POST` | `/appointments/{id}/reschedule` | patient | Move to another slot in one transaction. |
 | `GET` | `/appointments` | any signed-in user | Scoped by role: own bookings, own schedule, or all. |
+| `GET` | `/admin/notifications` | admin | The outbox; filter by `status` or type. |
+| `GET` | `/admin/notifications/summary` | admin | Counts pending / sent / failed. |
+| `POST` | `/admin/notifications/{id}/retry` | admin | Requeue a message that exhausted its retries. |
 
 Doctor and admin accounts are created by an admin rather than by self-registration, so
 `/auth/register` cannot be used to obtain elevated access.
@@ -183,6 +187,17 @@ Row locking is used for the second race, confirming a hold that already exists.
 patients at one slot and asserts exactly one `201`, nineteen `409`, no `500`, and exactly one
 occupying row in the database. Full reasoning in
 [ADR 0004](docs/adr/0004-booking-and-double-booking-prevention.md).
+
+### Notifications that survive an outage
+
+Booking never sends email. It writes the message as a row in the **same transaction** as the
+appointment, so the two cannot disagree — there is no ordering of "commit the booking" and
+"call the provider" that is safe, because they are two systems with no shared transaction. A
+background worker then delivers, retrying after 1, 5 and 30 minutes and finally parking the
+message as `failed` rather than dropping it, so `GET /admin/notifications` can answer "why
+did my patient get no email". Workers claim rows with `FOR UPDATE SKIP LOCKED`, so a second
+instance never sends anything twice. Full reasoning in
+[ADR 0005](docs/adr/0005-notification-outbox.md).
 
 ### Scheduling rules
 
@@ -215,6 +230,12 @@ Every variable the backend reads. See [`.env.example`](.env.example) for a copya
 | `JWT_ALGORITHM` | no | `HS256` | JWT signing algorithm. |
 | `ACCESS_TOKEN_TTL_MINUTES` | no | `60` | Access-token lifetime. |
 | `CLINIC_TIMEZONE` | no | `UTC` | IANA zone the doctors' working hours are written in. |
+| `EMAIL_PROVIDER` | no | `console` | `console` logs messages; `sendgrid` sends them and requires `EMAIL_API_KEY`. |
+| `EMAIL_API_KEY` | only for sendgrid | — | Provider API key. Startup fails if the provider needs it and it is absent. |
+| `EMAIL_FROM` / `EMAIL_FROM_NAME` | no | `clinic@example.com` / `The Clinic` | Sender identity. |
+| `NOTIFICATION_POLL_SECONDS` | no | `15` | How often the worker looks for due messages. |
+| `NOTIFICATION_MAX_ATTEMPTS` | no | `4` | Attempts before a message is parked as failed. |
+| `REMINDER_LEAD_HOURS` | no | `24` | How long before an appointment its reminder is sent. |
 | `SLOT_HOLD_MINUTES` | no | `5` | How long a slot stays reserved during the symptom form. |
 | `BOOKING_HORIZON_DAYS` | no | `60` | How far ahead patients may book. |
 | `CORS_ORIGINS` | no | `http://localhost:5173` | Comma-separated allowed frontend origins. |
@@ -282,7 +303,7 @@ frontend/             React SPA (Phase 8)
 - [x] **Phase 2** — Admin doctor management: specialisation, working hours, slot duration, leave.
 - [x] **Phase 3** — Availability and booking: slot generation, hold-then-confirm, double-booking
       prevention with a concurrent-request test.
-- [ ] **Phase 4** — Notification outbox and email delivery with capped retries.
+- [x] **Phase 4** — Notification outbox and email delivery with capped retries.
 - [ ] **Phase 5** — Doctor leave conflict cascade.
 - [ ] **Phase 6** — LLM pre-visit and post-visit summaries with graceful degradation;
       medication reminders.

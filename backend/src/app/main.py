@@ -16,11 +16,13 @@ from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
 from app import __version__
-from app.api import admin_doctors, appointments, auth, doctors, health
+from app.api import admin_doctors, admin_notifications, appointments, auth, doctors, health
 from app.core.config import Settings, get_settings
 from app.core.db import Database
 from app.core.logging import configure_logging, request_id_var
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
+from app.services.email import build_sender
+from app.workers.notification_worker import NotificationWorker
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +72,24 @@ def _build_lifespan(
             # instance can recover on its own once the database returns.
             logger.warning("continuing startup in degraded mode; /readyz will report down")
 
+        worker: NotificationWorker | None = None
+        if settings.notification_worker_enabled:
+            # Built here rather than per-request: one sender, one loop, owned by the app.
+            worker = NotificationWorker(
+                database,
+                build_sender(settings),
+                poll_seconds=settings.notification_poll_seconds,
+                batch_size=settings.notification_batch_size,
+                max_attempts=settings.notification_max_attempts,
+            )
+            worker.start()
+        app.state.notification_worker = worker
+
         try:
             yield
         finally:
+            if worker is not None:
+                await worker.stop()
             await database.dispose()
             logger.info("application shutdown complete")
 
@@ -113,6 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(admin_doctors.router)
+    app.include_router(admin_notifications.router)
     app.include_router(doctors.router)
     app.include_router(appointments.router)
 

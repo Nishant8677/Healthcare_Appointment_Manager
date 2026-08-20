@@ -66,6 +66,9 @@ def settings() -> Settings:
         jwt_secret=SecretStr(TEST_JWT_SECRET),
         # Short: a missing test database should fail the suite in seconds, not stall it.
         db_connect_timeout_seconds=5,
+        # Tests drive the worker directly so delivery is deterministic; a background loop
+        # would send messages at unpredictable moments and make assertions flaky.
+        notification_worker_enabled=False,
     )
 
 

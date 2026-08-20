@@ -13,13 +13,13 @@ dependencies = [
     "email-validator",
     "pyjwt",
     "argon2-cffi",
+    "httpx",
 ]
 
 [dependency-groups]
 dev = [
     "pytest",
     "pytest-asyncio",
-    "httpx",
     "ruff",
     "mypy",
     "pre-commit",

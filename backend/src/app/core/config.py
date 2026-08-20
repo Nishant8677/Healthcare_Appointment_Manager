@@ -73,6 +73,24 @@ class Settings(BaseSettings):
     # How far ahead patients may book. Bounds slot generation and stops a booking being made
     # years out, before the clinic's hours for that period are known.
     booking_horizon_days: int = Field(default=60, gt=0, le=365)
+    # How long before an appointment its reminder is sent.
+    reminder_lead_hours: int = Field(default=24, gt=0, le=168)
+
+    # --- Email delivery ---
+    # "console" logs the message instead of sending, which is what local development and
+    # the test suite use. Nothing is ever sent to a real address by accident.
+    email_provider: Literal["console", "sendgrid"] = "console"
+    email_api_key: SecretStr | None = None
+    email_from: str = "clinic@example.com"
+    email_from_name: str = "The Clinic"
+    email_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+
+    # --- Notification worker ---
+    notification_worker_enabled: bool = True
+    notification_poll_seconds: float = Field(default=15.0, gt=0, le=300)
+    notification_batch_size: int = Field(default=20, gt=0, le=200)
+    # Attempts before a job is parked as failed for a human to look at.
+    notification_max_attempts: int = Field(default=4, gt=0, le=10)
 
     # Comma-separated rather than a JSON list: pydantic-settings parses list-typed fields as
     # JSON, which makes a plain `A,B` value in a hosting dashboard fail in a confusing way.

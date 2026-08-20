@@ -139,6 +139,7 @@ async def confirm_appointment(
     appointment_id: uuid.UUID,
     payload: SymptomFormRequest,
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
     patient: User = Depends(patient_only),
 ) -> AppointmentResponse:
     try:
@@ -146,6 +147,7 @@ async def confirm_appointment(
             session,
             appointment_id=appointment_id,
             patient=patient,
+            settings=settings,
             symptoms=payload.symptoms,
             duration_days=payload.duration_days,
             additional_notes=payload.additional_notes,
@@ -169,6 +171,7 @@ async def cancel_appointment(
     appointment_id: uuid.UUID,
     payload: CancelRequest,
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
     actor: User = Depends(get_current_user),
 ) -> AppointmentResponse:
     """Patients cancel their own; doctors cancel their own schedule; admins cancel any.
@@ -178,7 +181,11 @@ async def cancel_appointment(
     """
     try:
         appointment = await booking_service.cancel_appointment(
-            session, appointment_id=appointment_id, actor=actor, reason=payload.reason
+            session,
+            appointment_id=appointment_id,
+            actor=actor,
+            settings=settings,
+            reason=payload.reason,
         )
     except AppointmentNotFound:
         raise _not_found(appointment_id) from None

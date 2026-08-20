@@ -41,6 +41,7 @@ from app.models.appointment import Appointment, SymptomReport
 from app.models.doctor import DoctorProfile
 from app.models.enums import AppointmentStatus, UserRole
 from app.models.user import User
+from app.services import notifications
 from app.services.availability import available_slots
 from app.services.doctor_service import get_doctor
 
@@ -210,6 +211,7 @@ async def confirm_hold(
     appointment_id: uuid.UUID,
     patient: User,
     symptoms: str,
+    settings: Settings,
     duration_days: int | None = None,
     additional_notes: str | None = None,
     now: datetime | None = None,
@@ -246,6 +248,19 @@ async def confirm_hold(
     appointment.status = AppointmentStatus.CONFIRMED
     appointment.hold_expires_at = None
 
+    # Queued inside this transaction, not sent from it. If the commit below fails, the
+    # confirmation emails disappear with the confirmation itself.
+    doctor = await get_doctor(session, appointment.doctor_profile_id)
+    notifications.enqueue_booking_confirmation(
+        session,
+        appointment=appointment,
+        patient=patient,
+        doctor=doctor,
+        zone=settings.clinic_zone,
+        reminder_lead_hours=settings.reminder_lead_hours,
+        now=reference,
+    )
+
     await session.commit()
     logger.info("appointment confirmed", extra={"appointment_id": str(appointment.id)})
     return await load_appointment(session, appointment.id)
@@ -259,6 +274,7 @@ async def cancel_appointment(
     *,
     appointment_id: uuid.UUID,
     actor: User,
+    settings: Settings,
     reason: str | None = None,
     now: datetime | None = None,
 ) -> Appointment:
@@ -288,6 +304,25 @@ async def cancel_appointment(
     appointment.status = new_status
     appointment.cancelled_at = reference
     appointment.cancellation_reason = reason
+
+    # A reminder for an appointment that is no longer happening must not go out. Whether to
+    # send depends on current state, which the frozen payload cannot answer, so the
+    # undelivered rows are removed instead.
+    await notifications.drop_pending_reminders(session, appointment.id)
+
+    patient = await session.get(User, appointment.patient_id)
+    doctor = await get_doctor(session, appointment.doctor_profile_id)
+    if patient is not None:
+        notifications.enqueue_cancellation(
+            session,
+            appointment=appointment,
+            patient=patient,
+            doctor=doctor,
+            zone=settings.clinic_zone,
+            cancelled_by_clinic=new_status is AppointmentStatus.CANCELLED_BY_CLINIC,
+            reason=reason,
+            now=reference,
+        )
 
     await session.commit()
     logger.info(
@@ -376,6 +411,29 @@ async def reschedule_appointment(
                 additional_notes=report.additional_notes,
             )
         )
+
+    # Flush so the replacement has an id the notification rows can reference.
+    await session.flush()
+    await notifications.drop_pending_reminders(session, original.id)
+    notifications.enqueue_cancellation(
+        session,
+        appointment=original,
+        patient=patient,
+        doctor=doctor,
+        zone=settings.clinic_zone,
+        cancelled_by_clinic=False,
+        reason=original.cancellation_reason,
+        now=reference,
+    )
+    notifications.enqueue_booking_confirmation(
+        session,
+        appointment=replacement,
+        patient=patient,
+        doctor=doctor,
+        zone=settings.clinic_zone,
+        reminder_lead_hours=settings.reminder_lead_hours,
+        now=reference,
+    )
 
     try:
         await session.commit()
