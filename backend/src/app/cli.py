@@ -10,6 +10,11 @@ It also carries the demo seed, for the same reason: populating a fresh deploymen
 something you do to a database from outside, once, not something the API should expose.
 
     DEMO_PASSWORD='...' python -m app.cli seed-demo
+
+And a diagnostic, because "is the model actually wired up" is a question worth being able to
+answer from a deployment's shell without booking an appointment to find out:
+
+    python -m app.cli check-llm
 """
 
 from __future__ import annotations
@@ -35,6 +40,8 @@ from app.models.user import User  # noqa: E402
 from app.schemas.auth import PASSWORD_MIN_LENGTH  # noqa: E402
 from app.seed import SeedRefused, seed_demo  # noqa: E402
 from app.services.auth_service import normalise_email  # noqa: E402
+from app.services.llm import LLMError, LLMRefusal, PreVisitSummary, build_llm_client  # noqa: E402
+from app.services.summaries import PRE_VISIT_SYSTEM  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +127,56 @@ async def seed(*, password: str) -> int:
     return 0
 
 
+async def check_llm() -> int:
+    """Send one real request through the configured provider and report what came back.
+
+    Exercises the whole path — settings, client selection, the request shape, the response
+    walk and the schema validation — rather than just pinging the endpoint. A key that works
+    for `curl` but not for this code is exactly the failure worth catching before a patient's
+    booking depends on it.
+    """
+    settings = get_settings()
+    print(f"provider: {settings.llm_provider}")
+    print(f"model:    {settings.llm_model}")
+    print()
+
+    try:
+        client = build_llm_client(settings)
+    except ValueError as error:
+        print(f"not configured: {error}", file=sys.stderr)
+        return 1
+
+    if settings.llm_provider == "stub":
+        print("This is the stub. Set LLM_PROVIDER and LLM_API_KEY to call a real model.")
+        return 0
+
+    # Deliberately mild and fictional: this runs against a real provider, and a diagnostic
+    # should not be sending invented symptoms that read as a real person's notes.
+    probe = "Analyse these symptoms.\n\nSYMPTOMS\n---\nA mild sore throat for two days.\n---"
+
+    try:
+        summary = await client.generate(
+            system=PRE_VISIT_SYSTEM,
+            user=probe,
+            output_model=PreVisitSummary,
+            max_tokens=settings.llm_max_output_tokens,
+        )
+    except LLMRefusal as error:
+        print(f"the model declined: {error}", file=sys.stderr)
+        return 1
+    except LLMError as error:
+        print(f"failed: {error}", file=sys.stderr)
+        return 1
+
+    print(f"urgency:   {summary.urgency}")
+    print(f"complaint: {summary.chief_complaint}")
+    for question in summary.suggested_questions:
+        print(f"  - {question}")
+    print()
+    print("The model is reachable and its answers match the required shape.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.cli", description=__doc__)
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -131,6 +188,11 @@ def main(argv: list[str] | None = None) -> int:
     subcommands.add_parser(
         "seed-demo",
         help="Fill an empty database with demo accounts and appointments.",
+    )
+
+    subcommands.add_parser(
+        "check-llm",
+        help="Send one real request through the configured model provider.",
     )
 
     args = parser.parse_args(argv)
@@ -152,6 +214,9 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         )
+
+    if args.command == "check-llm":
+        return asyncio.run(check_llm())
 
     parser.error(f"unknown command {args.command}")
 

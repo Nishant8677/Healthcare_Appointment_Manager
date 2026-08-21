@@ -106,6 +106,52 @@ if it ever reached a screen, so it is unmistakable on sight. Failing loudly on a
 is the other half: silently serving canned text as though it were a clinical summary is the
 worst outcome available here.
 
+## 7a. A second provider, added later, and what it cost
+
+**Decision.** `LLM_PROVIDER` chooses between `stub`, `anthropic` and `gemini`. Gemini is
+called over plain `httpx` rather than through `google-genai`, and each provider carries its own
+default model.
+
+**Why.** Added after the fact, because the only API key available for the deployment was a
+free Gemini one — which is a good test of whether the `LLMClient` seam was real or decorative.
+It was real: nothing outside `llm.py` changed. `summaries.py`, the worker, the API and every
+existing test were untouched, because the tests run against the stub.
+
+No SDK, for the same reason as the Calendar integration: the request is one POST and the
+response is one walk down two arrays, which is less code than pinning and auditing another
+dependency.
+
+**What the second provider exposed.** The first version of the guarantee — "output is
+schema-constrained, so unparseable text is not a failure mode this code carries" (§2) — turned
+out to be true of *Anthropic*, not of structured output in general. Anthropic's SDK returns a
+parsed object; Gemini returns the JSON as a **string**. So the decode step is real on one path
+and absent on the other, and malformed JSON is a genuine, handled failure mode for Gemini. The
+claim in §2 was too broad, and having a second provider is what showed it.
+
+Three details were only discoverable by calling the live API, and each would have been wrong
+if written from the documentation:
+
+- The response is a list of *typed steps*. This model reasons by default, so the answer is in
+  a later `model_output` step and `steps[0]` is a `thought`. `content` is itself a list of
+  typed parts.
+- Two Google documentation pages give different shapes for `response_format`. The one in the
+  API reference returns `400`; the one in the structured-output guide works.
+- The model answers `"High"`, capitalised. The `urgency` validator written in §2 for the
+  database's lower case turned out to be load-bearing for a provider that did not exist then.
+
+**Refusal detection is weaker here, deliberately.** Anthropic signals a decline unambiguously.
+Gemini has no documented equivalent, so a `failed` status whose error mentions safety, blocking
+or policy is treated as terminal and everything else unfamiliar stays retryable. Wrongly
+calling a transient failure permanent discards a summary that would have succeeded; wrongly
+retrying a refusal costs three requests. The cheaper mistake is the one to make.
+
+**Verified against a real outage.** During end-to-end testing Gemini returned a genuine `500`
+twice in a row — "currently experiencing high demand". The client classified it as retryable,
+backed off 2 minutes then 10, and succeeded on the third attempt, while the appointment stayed
+`confirmed` and both confirmation emails were delivered. The degradation design was proven by
+an outage nobody arranged, which is worth more than the deliberately-broken-key test that
+preceded it.
+
 ## 8. Prompts are versioned constants stored with their output
 
 **Decision.** `PRE_VISIT_PROMPT_VERSION` / `POST_VISIT_PROMPT_VERSION` are constants, recorded

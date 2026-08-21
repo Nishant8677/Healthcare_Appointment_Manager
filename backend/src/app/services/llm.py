@@ -6,19 +6,24 @@ Two rules shape this module.
 fail on demand, so the degradation path — which is the part that actually matters clinically —
 is testable without a network, an API key, or a bill.
 
-**The model's answer is schema-constrained, not parsed hopefully.** Requests go through the
-SDK's structured-output support with a pydantic model as the contract, so the response is
-validated before it reaches any calling code. There is no "parse the JSON and hope" step and
-no regex salvage of half-formed output.
+**The model's answer is schema-constrained, not parsed hopefully.** Both providers are given
+the pydantic model as the output contract, so nothing downstream ever sees unvalidated text.
+They differ in how far that goes, and the difference is worth knowing: Anthropic's SDK returns
+an already-parsed object, while Gemini returns the JSON as a *string* that this module has to
+decode. So malformed JSON is a real failure mode on the Gemini path and an impossible one on
+the Anthropic path. Neither is a "parse and hope" — the schema is enforced either way — but
+only one of them can fail at the decode step.
 """
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 import anthropic
-from pydantic import BaseModel, Field, field_validator
+import httpx
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.core.config import Settings
 
@@ -131,7 +136,7 @@ class StubLLMClient:
 
 
 class AnthropicLLMClient:
-    """Calls Claude through the official SDK.
+    """Calls the Anthropic API through its official SDK.
 
     Uses structured outputs: the response is validated against `output_model` by the SDK, so
     a malformed answer is not a failure mode the caller has to handle.
@@ -190,22 +195,212 @@ class AnthropicLLMClient:
         return parsed
 
 
+class GeminiLLMClient:
+    """Calls the Gemini Interactions API over plain HTTPS.
+
+    No `google-genai` SDK: the request is one POST and the response needs one walk down two
+    typed arrays, which is less code than pinning and auditing another dependency — and the
+    same reasoning that kept the Google Calendar integration on `httpx`.
+
+    The response shape is the part worth reading, because it is not obvious and getting it
+    wrong fails on every call. `steps` is a list of *typed* steps, and this model reasons by
+    default, so the first entry is a `thought` and the answer is in a later `model_output`
+    step. Its `content` is itself a list of typed parts. Indexing `steps[0]` or `content[0]`
+    happens to work only when reasoning is off.
+    """
+
+    ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions"
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        timeout_seconds: float,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._api_key = api_key
+        self._model = model
+        self._timeout = timeout_seconds
+        # Injectable so the exact request and every failure branch can be asserted against a
+        # mock transport, with no key and no network.
+        self._transport = transport
+
+    async def generate(
+        self,
+        *,
+        system: str,
+        user: str,
+        output_model: type[OutputT],
+        max_tokens: int,
+    ) -> OutputT:
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "input": user,
+            # A real system role rather than text prepended to the prompt: the instruction
+            # that patient symptoms are data and never commands is the prompt-injection
+            # defence, and it should not sit in the same channel as the untrusted text.
+            "system_instruction": system,
+            "generation_config": {"max_output_tokens": max_tokens},
+            "response_format": {
+                "type": "text",
+                "mime_type": "application/json",
+                "schema": _json_schema_for(output_model),
+            },
+        }
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._timeout, transport=self._transport
+            ) as client:
+                response = await client.post(
+                    self.ENDPOINT,
+                    headers={"x-goog-api-key": self._api_key, "Content-Type": "application/json"},
+                    json=payload,
+                )
+        except httpx.HTTPError as error:
+            raise LLMError(f"could not reach the model provider: {error}") from error
+
+        if response.status_code >= 400:
+            # The body can echo the prompt, which for a pre-visit summary is a patient's
+            # symptoms. Only the status and Google's short reason are surfaced.
+            raise LLMError(
+                f"model provider returned {response.status_code}: {_gemini_error(response)}"
+            )
+
+        try:
+            body: dict[str, Any] = response.json()
+        except ValueError as error:
+            raise LLMError("the model provider returned a non-JSON response") from error
+
+        _check_status(body)
+        return _parse_output(body, output_model)
+
+
+def _json_schema_for(output_model: type[BaseModel]) -> dict[str, Any]:
+    """The output contract, as the schema Gemini enforces.
+
+    `title` keys are stripped because pydantic emits one per field and they are noise in a
+    schema whose only job is to constrain shape.
+    """
+    stripped: dict[str, Any] = _without_titles(output_model.model_json_schema())
+    return stripped
+
+
+def _without_titles(node: Any) -> Any:
+    if isinstance(node, dict):
+        return {key: _without_titles(value) for key, value in node.items() if key != "title"}
+    if isinstance(node, list):
+        return [_without_titles(item) for item in node]
+    return node
+
+
+# Terminal states: the model was stopped rather than delayed, so a retry reaches the same
+# place. Everything else unexpected is treated as retryable, because guessing that an
+# unfamiliar state is permanent risks discarding a summary that would have succeeded.
+_REFUSAL_STATUSES = frozenset({"failed", "cancelled"})
+_SAFETY_MARKERS = ("safety", "blocked", "prohibited", "policy")
+
+
+def _check_status(body: dict[str, Any]) -> None:
+    status = body.get("status")
+    if status == "completed":
+        return
+
+    reason = "; ".join(
+        str(error.get("message", "")) for error in body.get("errors", []) if isinstance(error, dict)
+    )
+
+    if status in _REFUSAL_STATUSES and any(marker in reason.lower() for marker in _SAFETY_MARKERS):
+        # Declining clinical text is a realistic outcome, and it is a decision about *this*
+        # request — retrying only spends quota to be refused again.
+        raise LLMRefusal(f"the model declined to answer this request: {reason}")
+
+    if status == "budget_exceeded":
+        raise LLMError("the model ran out of output tokens before finishing")
+
+    raise LLMError(f"the model did not complete (status: {status or 'unknown'}) {reason}".strip())
+
+
+def _parse_output(body: dict[str, Any], output_model: type[OutputT]) -> OutputT:
+    """Walk `steps` -> the `model_output` step -> its text parts -> JSON -> the contract."""
+    steps = body.get("steps")
+    if not isinstance(steps, list):
+        raise LLMError("the model returned no steps")
+
+    text = ""
+    for step in steps:
+        # Skipped rather than indexed: a `thought` step comes first whenever the model
+        # reasons, which for this one is the default.
+        if not isinstance(step, dict) or step.get("type") != "model_output":
+            continue
+        parts = step.get("content")
+        if isinstance(parts, list):
+            text += "".join(
+                str(part.get("text", ""))
+                for part in parts
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
+
+    if not text.strip():
+        raise LLMError("the model returned no output text")
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as error:
+        # Reachable in a way the Anthropic path is not: this provider hands back JSON as a
+        # string, so decoding it is a step that can genuinely fail.
+        raise LLMError(f"the model returned text that is not valid JSON: {error}") from error
+
+    try:
+        return output_model.model_validate(parsed)
+    except ValidationError as error:
+        raise LLMError(f"the model's answer did not match the required shape: {error}") from error
+
+
+def _gemini_error(response: httpx.Response) -> str:
+    """Google's short message, never the whole body."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return "unparseable error response"
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if isinstance(message, str):
+                return message[:200]
+        errors = payload.get("errors")
+        if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+            return str(errors[0].get("message", ""))[:200]
+    return "unknown error"
+
+
 def build_llm_client(settings: Settings) -> LLMClient:
     """Choose a client from configuration.
 
-    An `anthropic` provider with no API key fails loudly rather than falling back to the stub:
+    A real provider with no API key fails loudly rather than falling back to the stub:
     silently serving canned text as if it were a clinical summary is the worst outcome
     available here.
     """
-    if settings.llm_provider == "anthropic":
-        if settings.llm_api_key is None:
-            raise ValueError(
-                "LLM_PROVIDER is 'anthropic' but LLM_API_KEY is not set. "
-                "Set the key, or use LLM_PROVIDER=stub for local development."
-            )
-        return AnthropicLLMClient(
-            api_key=settings.llm_api_key.get_secret_value(),
+    if settings.llm_provider == "stub":
+        return StubLLMClient()
+
+    if settings.llm_api_key is None:
+        raise ValueError(
+            f"LLM_PROVIDER is {settings.llm_provider!r} but LLM_API_KEY is not set. "
+            "Set the key, or use LLM_PROVIDER=stub for local development."
+        )
+    key = settings.llm_api_key.get_secret_value()
+
+    if settings.llm_provider == "gemini":
+        return GeminiLLMClient(
+            api_key=key,
             model=settings.llm_model,
             timeout_seconds=settings.llm_timeout_seconds,
         )
-    return StubLLMClient()
+    return AnthropicLLMClient(
+        api_key=key,
+        model=settings.llm_model,
+        timeout_seconds=settings.llm_timeout_seconds,
+    )

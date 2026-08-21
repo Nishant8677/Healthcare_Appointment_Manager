@@ -12,8 +12,10 @@ makes a prompt change measurable rather than a matter of impression.
 
 | Constant | Version | Model |
 | --- | --- | --- |
-| `PRE_VISIT_PROMPT_VERSION` | `pre-visit-v1` | `LLM_MODEL`, default `claude-opus-5` |
+| `PRE_VISIT_PROMPT_VERSION` | `pre-visit-v1` | `LLM_MODEL` — defaults to the provider's own |
 | `POST_VISIT_PROMPT_VERSION` | `post-visit-v1` | same |
+
+Two providers are supported, `gemini` and `anthropic`, and the same prompts go to both. `LLM_MODEL` left unset resolves to `gemini-3.7-flash` or `claude-opus-5` respectively — sharing one default across providers would mean switching provider and forgetting the model sends an Anthropic model id to Google, and finding out from a 400 on the first summary.
 
 The two user-message templates are the wordings given in the brief, kept verbatim. The system
 prompts around them are ours, and everything below explains what each line is doing there.
@@ -142,26 +144,37 @@ because the prose would read perfectly well.
 
 ## Output is schema-constrained, not parsed hopefully
 
-Requests go through the Anthropic SDK's structured-output support with a pydantic model as the
-contract:
+Both providers are given the same pydantic models as the output contract:
 
 ```python
 PreVisitSummary(urgency: str, chief_complaint: str, suggested_questions: list[str])
 PostVisitSummary(summary: str, medication_schedule: list[str], follow_up_steps: list[str])
 ```
 
-There is no JSON parsing step and no salvage of malformed text, because "the model returned
-something unparseable" is not a failure mode this application has to carry code for. A
-validator narrows `urgency` to the three permitted values — the prompt asks for
-"Low / Medium / High" and the database stores lower case.
+A validator narrows `urgency` to the three permitted values — the prompt asks for
+"Low / Medium / High" and the database stores lower case. That validator is not decoration:
+the live Gemini model answers `"High"`, capitalised.
+
+The two providers differ in how far the guarantee reaches, and it is worth knowing which:
+
+| | Anthropic | Gemini |
+| --- | --- | --- |
+| Contract | `output_format=<pydantic model>` | `response_format.schema` from the same model |
+| What comes back | an already-parsed object | **JSON as a string** |
+| Can the decode fail? | no | **yes** — so it is handled |
+
+So "the model returned unparseable text" is impossible on one path and a real failure mode on
+the other, where it becomes a retryable `LLMError` rather than an exception escaping the
+worker. Both paths validate against the same pydantic contract before anything is stored.
 
 What remains is the failure modes that are genuinely irreducible, and they are handled
 differently because they are different events:
 
 | Failure | Treatment |
 | --- | --- |
-| Provider unreachable, timeout, rate limit | Retry with growing backoff (2, 10, 60 minutes) |
-| Model declines (`stop_reason: "refusal"`) | **Terminal.** The same request will be declined again; retrying only delays the same outcome while spending money. Note that a refusal arrives as a normal `200`, so it is checked for rather than caught. |
+| Provider unreachable, timeout, rate limit, `5xx` | Retry with growing backoff (2, 10, 60 minutes) |
+| Gemini returns text that is not JSON, or JSON of the wrong shape | Retry — a different sample may parse |
+| Model declines (Anthropic `stop_reason: "refusal"`; Gemini a `failed` status whose error names a safety or policy block) | **Terminal.** The same request will be declined again; retrying only delays the same outcome while spending money. Note that a refusal arrives as a normal `200`, so it is checked for rather than caught. |
 | Budget exhausted | Parked as `failed` with the reason, surfaced in the portal |
 
 A missing summary is reported as `pending` or `failed` with a reason, never as `null`. A
@@ -181,3 +194,24 @@ fails at startup rather than falling back — silently serving canned text as th
 clinical summary is the worst outcome available here.
 
 Full reasoning: [ADR 0007](adr/0007-llm-summaries.md).
+
+---
+
+## A note on Gemini's refusal detection
+
+Anthropic signals a decline unambiguously — `stop_reason: "refusal"` on an otherwise normal
+`200`. Gemini has no documented equivalent, so the client infers one: a `failed` or
+`cancelled` status whose error message mentions safety, blocking or policy is treated as
+terminal, and **anything else unfamiliar stays retryable**.
+
+That asymmetry is deliberate. Wrongly treating a transient failure as permanent silently
+discards a summary that would have succeeded on the next attempt; wrongly retrying a refusal
+costs three requests and then parks the row with an honest reason. The cheaper mistake is the
+one to make.
+
+This was verified against the live API in a way that was not planned: during end-to-end
+testing Gemini returned a genuine `500` — "currently experiencing high demand" — twice in a
+row. The client classified it as retryable, backed off 2 minutes then 10, and succeeded on the
+third attempt. Throughout, the appointment stayed `confirmed` and both confirmation emails
+were delivered. That is the whole design working against a real outage rather than a simulated
+one.

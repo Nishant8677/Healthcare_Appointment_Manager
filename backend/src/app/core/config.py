@@ -15,6 +15,14 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["dev", "test", "prod"]
+LLMProvider = Literal["stub", "anthropic", "gemini"]
+
+# The model each provider is called with when LLM_MODEL is not set explicitly.
+DEFAULT_LLM_MODELS: dict[str, str] = {
+    "stub": "stub",
+    "anthropic": "claude-opus-5",
+    "gemini": "gemini-3.7-flash",
+}
 
 _ASYNC_DRIVER = "postgresql+psycopg"
 
@@ -88,9 +96,12 @@ class Settings(BaseSettings):
     # --- LLM summaries ---
     # "stub" returns a deterministic canned summary: the default for local development and
     # tests, so no API key is needed and no request is ever billed by accident.
-    llm_provider: Literal["stub", "anthropic"] = "stub"
+    llm_provider: LLMProvider = "stub"
     llm_api_key: SecretStr | None = None
-    llm_model: str = "claude-opus-5"
+    # Left unset, the provider's own default is filled in below. Carrying one shared default
+    # across providers would mean a deployment that switches provider and forgets this sends
+    # an Anthropic model id to Google, and learns about it from a 400 on the first summary.
+    llm_model: str = DEFAULT_LLM_MODELS["stub"]
     llm_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
     llm_max_output_tokens: int = Field(default=2000, gt=0, le=16000)
     # Attempts before a summary is parked as failed. A summary is never on the critical path,
@@ -172,6 +183,17 @@ class Settings(BaseSettings):
                 'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
             )
         return value
+
+    @model_validator(mode="after")
+    def _default_model_matches_the_provider(self) -> Settings:
+        """Fill in the provider's own model when one was not named.
+
+        Only when `LLM_MODEL` was left unset — an explicit value is always honoured, because
+        pinning a specific model is exactly what someone setting it means to do.
+        """
+        if "llm_model" not in self.model_fields_set:
+            self.llm_model = DEFAULT_LLM_MODELS[self.llm_provider]
+        return self
 
     @model_validator(mode="after")
     def _calendar_credentials_are_complete(self) -> Settings:

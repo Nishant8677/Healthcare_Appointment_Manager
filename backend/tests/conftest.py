@@ -67,6 +67,12 @@ def default_password() -> str:
 @pytest.fixture(scope="session")
 def settings() -> Settings:
     return Settings(
+        # Hermetic: `_env_file=None` stops pydantic-settings reading the developer's
+        # `backend/.env`. Without it the suite inherits whatever happens to be configured
+        # locally — it was picking up a real LLM provider and API key — so a green run on one
+        # machine says nothing about another, and a future test that built a real client
+        # would quietly spend somebody's quota.
+        _env_file=None,
         app_env="test",
         log_level="WARNING",
         database_url=os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL),

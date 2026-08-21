@@ -399,9 +399,9 @@ Every variable the backend reads. See [`.env.example`](.env.example) for a copya
 | `NOTIFICATION_POLL_SECONDS` | no | `15` | How often the worker looks for due messages. |
 | `NOTIFICATION_MAX_ATTEMPTS` | no | `4` | Attempts before a message is parked as failed. |
 | `REMINDER_LEAD_HOURS` | no | `24` | How long before an appointment its reminder is sent. |
-| `LLM_PROVIDER` | no | `stub` | `stub` returns obviously-synthetic text; `anthropic` calls Claude and requires `LLM_API_KEY`. |
-| `LLM_API_KEY` | only for anthropic | — | Startup fails if the provider needs it and it is absent. |
-| `LLM_MODEL` | no | `claude-opus-5` | Recorded on every summary so old output stays explainable. |
+| `LLM_PROVIDER` | no | `stub` | `stub` returns obviously-synthetic text. `gemini` and `anthropic` call a real model and require `LLM_API_KEY`. |
+| `LLM_API_KEY` | for a real provider | — | Startup fails if the provider needs it and it is absent. |
+| `LLM_MODEL` | no | the provider's own | `gemini-3.7-flash` or `claude-opus-5`. Recorded on every summary so old output stays explainable. |
 | `MEDICATION_REMINDER_MAX_DAYS` | no | `14` | Caps how far a long course queues reminders. |
 | `SLOT_HOLD_MINUTES` | no | `5` | How long a slot stays reserved during the symptom form. |
 | `BOOKING_HORIZON_DAYS` | no | `60` | How far ahead patients may book. |

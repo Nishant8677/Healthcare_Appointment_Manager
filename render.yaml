@@ -56,7 +56,8 @@ services:
       - key: EMAIL_PROVIDER
         value: console
       # Stub by default, so the deployment costs nothing and cannot be billed by a crawler.
-      # Set LLM_PROVIDER=anthropic and add LLM_API_KEY to use the real model.
+      # Set LLM_PROVIDER to 'gemini' or 'anthropic' and add LLM_API_KEY for real summaries.
+      # Leave LLM_MODEL unset: each provider has its own default.
       - key: LLM_PROVIDER
         value: stub
       - key: BACKGROUND_WORKERS_ENABLED
