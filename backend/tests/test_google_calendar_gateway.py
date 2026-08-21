@@ -9,6 +9,7 @@ forever or a rate limit dead-lettered on first contact.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -38,7 +39,10 @@ def make_event(event_id: str = "abc12") -> CalendarEvent:
     )
 
 
-def build_gateway(handler: Any) -> tuple[GoogleCalendarGateway, list[httpx.Request]]:
+RequestHandler = Callable[[httpx.Request], httpx.Response]
+
+
+def build_gateway(handler: RequestHandler) -> tuple[GoogleCalendarGateway, list[httpx.Request]]:
     """A gateway whose every HTTP call is answered by `handler` and recorded."""
     seen: list[httpx.Request] = []
 

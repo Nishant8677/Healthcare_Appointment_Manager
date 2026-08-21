@@ -70,7 +70,11 @@ filterwarnings = ["error::DeprecationWarning:app.*"]
 
 [tool.mypy]
 python_version = "3.11"
-packages = ["app"]
+# Tests are checked too, not just src. They are where the fixtures and fakes live, and a fake
+# whose shape has drifted from the thing it stands in for is exactly the bug a type checker
+# catches and a passing test does not. Checking only `app` also let `mypy` report success
+# while `mypy src tests` reported nine errors, which makes "type-clean" mean two things.
+files = ["src", "tests"]
 mypy_path = "src"
 strict = true
 plugins = ["pydantic.mypy"]

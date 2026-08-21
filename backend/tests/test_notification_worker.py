@@ -17,7 +17,8 @@ from app.core.db import Database
 from app.models.enums import NotificationStatus, NotificationType
 from app.models.notification import NotificationJob
 from app.services.email import EmailDeliveryError, EmailMessage
-from app.workers.notification_worker import backoff_for, deliver_once
+from app.workers.notification_worker import deliver_once
+from app.workers.runner import backoff_for
 
 NOW = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 

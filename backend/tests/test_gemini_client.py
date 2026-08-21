@@ -61,7 +61,7 @@ REAL_RESPONSE: dict[str, Any] = {
 
 
 def client_returning(
-    payload: dict[str, Any] | str, status_code: int = 200
+    payload: dict[str, Any] | list[Any] | str, status_code: int = 200
 ) -> tuple[GeminiLLMClient, list[httpx.Request]]:
     seen: list[httpx.Request] = []
 

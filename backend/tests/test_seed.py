@@ -9,6 +9,7 @@ opening the deployment finds something on each screen rather than three empty li
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
 import pytest
 from sqlalchemy import select
@@ -24,11 +25,12 @@ from app.models.user import User
 from app.seed import ADMIN_EMAIL, DOCTORS, PATIENTS, SeedRefused, seed_demo
 
 MakeUser = Callable[..., Awaitable[User]]
+ModelT = TypeVar("ModelT")
 
 DEMO_PASSWORD = "seed-test-password"
 
 
-async def rows(session: AsyncSession, model: type) -> list:
+async def rows(session: AsyncSession, model: type[ModelT]) -> list[ModelT]:
     result = await session.execute(select(model))
     return list(result.scalars().all())
 

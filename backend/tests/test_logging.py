@@ -73,7 +73,11 @@ def test_request_id_filter_reads_the_ambient_context() -> None:
     try:
         record = _make_record()
         RequestIdFilter().filter(record)
-        assert record.request_id == "ctx-99"
+        # The filter injects this at runtime, so LogRecord does not declare it. Reading it out
+        # of __dict__ is where it actually lands, and says so — attribute access would need a
+        # type-checker exemption, and getattr with a constant name is just attribute access
+        # wearing a hat.
+        assert record.__dict__["request_id"] == "ctx-99"
     finally:
         request_id_var.reset(token)
 
@@ -96,5 +100,6 @@ async def test_completion_log_carries_the_request_id(client: AsyncClient) -> Non
 
     completed = [r for r in handler.records if r.getMessage() == "request completed"]
     assert completed, "middleware emitted no completion record"
-    assert completed[0].request_id == "corr-42"
-    assert completed[0].status_code == 200
+    # Both are set by the middleware via `extra=`, which writes them into the record's __dict__.
+    assert completed[0].__dict__["request_id"] == "corr-42"
+    assert completed[0].__dict__["status_code"] == 200
