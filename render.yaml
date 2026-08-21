@@ -27,11 +27,16 @@ services:
     # difference between this machine and the build container could quietly ship different
     # versions than the ones the tests ran against.
     #
-    # The interpreter is pinned by backend/.python-version, not here: Render's default Python
-    # moves forward with time (3.14 at the time of writing) and the test suite runs on 3.11.
-    # The lock is universal so it would probably resolve either way, but "probably" is doing
-    # too much work when the failure mode is a C extension with no wheel for the container's
-    # version, building from source in a deploy log nobody is watching.
+    # The interpreter is pinned by `.python-version` at the repository root, not here, and the
+    # root is not a stylistic choice — Render reads that file from the repo root only, so a
+    # copy under backend/ is silently ignored no matter what rootDir says. uv searches parent
+    # directories, so the one file serves both.
+    #
+    # Pinned at all because Render's default Python moves forward with time (3.14 at the time
+    # of writing) while the test suite runs on 3.11. The lock is universal so it would probably
+    # resolve either way, but "probably" is doing too much work when the failure mode is a C
+    # extension with no wheel for the container's version, building from source in a deploy log
+    # nobody is watching.
     buildCommand: pip install uv && uv sync --frozen
     # Migrations run before the server starts, so a schema change that fails takes the deploy
     # down rather than leaving a running API talking to a database it does not match.
