@@ -26,31 +26,50 @@ Nothing else needs enabling. The app does not use Gmail, Drive, or People.
 
 ## 3. Configure the consent screen
 
-**APIs & Services → OAuth consent screen**.
+**Menu → Google Auth Platform.** (This used to be "APIs & Services → OAuth consent screen";
+Google reorganised it, and older guides — including an earlier version of this one — still
+point at the old path.)
 
-| Field | Value |
-|---|---|
-| User type | **External** (unless you have a Workspace organisation, in which case Internal is simpler) |
-| App name | Healthcare Appointment Manager |
-| User support email | your address |
-| Developer contact | your address |
+It is split across pages rather than being one wizard:
 
-On the **Scopes** step, add:
+| Page | What to do |
+| --- | --- |
+| **Branding** | App name (`Healthcare Appointment Manager`), user support email, developer contact — all your own address |
+| **Audience** | **External**, unless you have a Workspace organisation, in which case Internal is simpler |
+| **Audience → Test users** | **Add your own Google account.** Not optional — see below |
+| **Data Access** | Scopes, if you want them listed — see below |
+| **Clients** | Where step 4 creates the OAuth client |
+
+**Test users is the one people miss.** While the app is in *Testing* mode Google refuses
+consent for any account not on that list, and the error it shows does not explain why.
+
+### About scopes
+
+On **Data Access → Add or Remove Scopes**, the one this application needs is:
 
 ```
 https://www.googleapis.com/auth/calendar.events
 ```
 
-That is the narrowest scope that permits creating, updating and deleting events. Do **not**
+That is the narrowest scope permitting events to be created, updated and deleted. Do **not**
 add `https://www.googleapis.com/auth/calendar` — it grants control over the user's entire
 calendar list, including deleting calendars, which this application has no use for.
 
-`openid` and `email` are added automatically and are used only to record which Google account
-was connected, so the portal can show the user which calendar their appointments are going to.
+`openid` and `email` come along automatically and are used only to record which Google account
+was connected, so the portal can show a user which calendar their appointments are going to.
 
-On the **Test users** step, add every Google account you intend to connect. While the app is
-in *Testing* mode Google refuses consent for anyone not on that list, with an error that does
-not explain why.
+**Do not skip this page.** `calendar.events` is a *sensitive* scope, and for an External app
+Google will not issue consent for a sensitive scope that has not been declared here. The
+symptom if you miss it is not a helpful message — it is Google's generic **`500. That's an
+error.`** page on the consent screen, which looks like an outage rather than a configuration
+gap.
+
+Diagnosed the hard way, and the bisect is worth knowing: request the same authorization URL
+with only `openid email`. If the consent screen renders, the client and consent screen are
+fine and the problem is the scope. If it 500s too, the problem is the consent screen itself.
+
+Google may warn that sensitive scopes require verification. That applies to *publishing*. In
+Testing mode, listed test users can consent to sensitive scopes without any review.
 
 > **Refresh tokens expire after 7 days while the app is in Testing mode.** This is a Google
 > policy, not a bug in this application: a connection made today stops working next week and
@@ -170,6 +189,7 @@ the wrong place for a description of somebody's medical complaint.
 | `Error 403: access_denied` during consent | The Google account is not in the **Test users** list on the consent screen. |
 | `502 … Google returned no refresh token` | A stale grant exists. Remove the app at [myaccount.google.com/permissions](https://myaccount.google.com/permissions) and connect again. |
 | `503 Google Calendar is not configured` | `GOOGLE_CLIENT_ID` is unset. Expected if you are running without calendar sync. |
+| Google's generic **`500. That's an error`** on the consent screen | The `calendar.events` scope is not declared under **Data Access**. Bisect by requesting `openid email` alone: if that renders, it is the scope. |
 | Connection worked, then stopped after a week | Testing-mode refresh tokens expire after 7 days. Reconnect, or publish the app. |
 | Entries show as `skipped` in the admin view | The user has no connected calendar. Not an error. Requeue them with the retry endpoint once they connect. |
 
