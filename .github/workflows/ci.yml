@@ -1,0 +1,118 @@
+# Runs on every push and pull request. Two independent jobs, because a frontend typo should
+# not hide behind a backend failure — and because they have nothing to say to each other.
+#
+# The gates here are the same commands the project is developed with, not a reduced set:
+# ruff, mypy over src *and* tests, the full pytest suite against a real PostgreSQL, and the
+# frontend's lint, typecheck, test and production build. A green tick means what it looks
+# like it means.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run's answer irrelevant, so stop paying
+# for it. `main` is excluded: those runs are the record of what was released.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+
+    # A real PostgreSQL rather than SQLite. The suite proves double-booking is impossible
+    # using a partial unique index and a concurrency test that fires twenty simultaneous
+    # bookings at one slot; neither means anything on a different engine.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ham
+          POSTGRES_PASSWORD: ham_local_dev
+          POSTGRES_DB: healthcare_test
+        ports:
+          - 5432:5432
+        # Without this the first connection races the container's startup, which fails
+        # roughly one run in five and looks like a flaky test rather than a missing wait.
+        options: >-
+          --health-cmd "pg_isready -U ham -d healthcare_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://ham:ham_local_dev@localhost:5432/healthcare_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reads .python-version at the repository root — the same file uv and Render read, so
+      # all three agree on the interpreter by construction rather than by three separate
+      # declarations that drift.
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+
+      # `pip install uv` rather than a setup action, deliberately: this is character for
+      # character the backend build command in render.yaml, so CI exercises the install path
+      # the deployment actually uses.
+      - name: Install dependencies
+        run: pip install uv && uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check src tests
+
+      - name: Format
+        run: uv run ruff format --check src tests
+
+      # No arguments: the pyproject config covers src and tests both.
+      - name: Types
+        run: uv run mypy
+
+      - name: Tests
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `npm ci`, never `npm install`. It installs strictly from the lockfile and fails if
+      # package.json disagrees with it — which is exactly the failure that broke the first
+      # deployment and was invisible locally, because nobody with a populated node_modules
+      # ever performs a clean install.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Types
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      # Last, because it is the slowest and the least likely to fail on its own.
+      - name: Build
+        run: npm run build

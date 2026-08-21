@@ -1,5 +1,7 @@
 # Healthcare Appointment & Follow-up Manager
 
+[![CI](https://github.com/Nishant8677/Healthcare_Appointment_Manager/actions/workflows/ci.yml/badge.svg)](https://github.com/Nishant8677/Healthcare_Appointment_Manager/actions/workflows/ci.yml)
+
 A clinic platform with separate patient, doctor and admin portals. Patients book appointments
 and describe their symptoms up front; the doctor gets an AI-generated pre-visit summary with an
 urgency level; after the visit the patient gets a plain-language summary with a medication
