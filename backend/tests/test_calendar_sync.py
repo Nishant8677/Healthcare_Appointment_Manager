@@ -8,6 +8,7 @@ whose order decides the outcome.
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, time, timedelta
@@ -161,6 +162,27 @@ async def test_the_event_never_carries_the_symptom_text(
     serialised = f"{payload['summary']} {payload['description']}"
     assert SYMPTOMS not in serialised
     assert "chest pain" not in serialised.lower()
+
+
+async def test_the_event_description_never_restates_the_clock_time(
+    client: AsyncClient,
+    make_patient: MakePatient,
+    bookable_doctor: DoctorProfile,
+    db_session: AsyncSession,
+    connect_calendar: ConnectCalendar,
+) -> None:
+    """The event already carries the instant, and every calendar draws it in its reader's own
+    zone. A time written into the description is formatted in the clinic's zone instead, so it
+    disagrees with the entry Google renders for anyone who does not share it — which is how a
+    patient in Chennai saw "Starts: ... at 09:00" on a block their calendar drew at 2:30pm."""
+    patient, headers = await make_patient()
+    await connect_calendar(patient)
+
+    await hold_and_confirm(client, headers, bookable_doctor, slot_at(a_future_day(), 13))
+
+    description = (await sync_jobs(db_session))[0].payload["description"]
+    assert "Starts:" not in description
+    assert not re.search(r"\d{1,2}:\d{2}", description), description
 
 
 async def test_each_side_sees_the_other_partys_name(

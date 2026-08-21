@@ -83,8 +83,13 @@ def build_payload(
     whatever else the account is signed into, and is often visible to anyone glancing at a
     screen — it is the wrong place for a description of somebody's medical complaint. The
     time, the other party's name and a reference are enough to be useful.
+
+    It also does not restate the start time in the description. The event already carries the
+    instant, and Google renders it in whatever zone the reader's calendar is set to; a second
+    copy formatted in the clinic's zone is only correct for readers who happen to share it.
+    A patient in Chennai read "Starts: ... at 09:00" on an entry their calendar was drawing at
+    2:30pm — both were right, which is exactly what makes a second source of truth harmful.
     """
-    local_start = appointment.starts_at.astimezone(zone)
     other_party = patient.full_name if for_doctor else f"Dr {doctor.user.full_name}"
 
     if for_doctor:
@@ -99,8 +104,7 @@ def build_payload(
         summary = f"Appointment with {other_party}"
         description = (
             f"Doctor: Dr {doctor.user.full_name}\n"
-            f"Specialisation: {doctor.specialisation}\n"
-            f"Starts: {local_start.strftime('%A %d %B %Y at %H:%M')}\n\n"
+            f"Specialisation: {doctor.specialisation}\n\n"
             "Booked through the Healthcare Appointment Manager."
         )
 
