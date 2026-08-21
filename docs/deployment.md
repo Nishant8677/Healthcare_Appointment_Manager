@@ -100,6 +100,14 @@ paid-only. So the seed is run from your own machine against the deployed databas
 straightforward here, because the database is external: it is the same connection string
 Render uses, reachable from anywhere.
 
+> **Settle `CLINIC_TIMEZONE` before you seed, not after.** Working hours are wall-clock times
+> in the clinic's zone; appointments are UTC instants. The seed asks the availability service
+> for a free slot, so it places appointments inside working hours *as read in whatever zone the
+> seeding machine is set to*. Change the zone afterwards and those same instants are re-read
+> against different hours, which can leave a seeded appointment outside its own doctor's
+> availability. Set it identically on the API and on the machine running the seed — the API
+> default is `UTC`, so if you want anything else, set it in both places first.
+
 From `backend/`, with the Neon URL from step 2:
 
 ```bash
@@ -146,6 +154,22 @@ reports `503` if the database is unreachable, which is what Render's health chec
 
 Then open the portals and sign in as each of the three roles. The interactive API
 documentation is at `https://ham-api.onrender.com/docs`.
+
+---
+
+## Things that went wrong the first time
+
+Every row here cost a deploy cycle. They are recorded because none of them announce themselves
+— each produces an error that describes a symptom somewhere other than the cause.
+
+| Symptom | Cause |
+| --- | --- |
+| `ValidationError … database_url … Field required`, then `Port scan timeout reached` | `DATABASE_URL` is unset. **Reconnecting a Blueprint to services that already exist does not re-prompt for `sync: false` variables** — Render only asks when it creates a service. Check them by hand on an adopted service. The port-scan message is a consequence, not a second fault: the start command is `alembic … && python run.py`, so a failed migration means nothing ever binds a port. |
+| `app_env … Input should be 'dev', 'test' or 'prod'` with a connection string as the value | A value was pasted into the wrong row in Render's environment editor. The variable named in the error tells you which row to look at. |
+| Build exits during `npm ci`, `No matching version found for …` | `package.json` and `package-lock.json` disagree. `npm ci` refuses to install when they do — deliberately. It never reproduces locally, because a populated `node_modules` means nobody performs a clean install. Run `npm ci` before trusting a deploy. |
+| Build uses the wrong Python despite a `.python-version` file | Render reads that file from the **repository root only**; `rootDir` does not apply to it. A copy inside the service directory is ignored silently. |
+| `password authentication failed`, or `Could not parse SQLAlchemy URL` | A placeholder was pasted literally. Copy the connection string from the provider and change nothing in it. |
+| Seeded appointments sit outside their doctor's stated hours | `CLINIC_TIMEZONE` differs between the machine that seeded and the running API. Working hours are wall-clock in the clinic's zone; appointments are UTC instants. Seeding under one zone and serving under another re-interprets them. Set the same value in both places **before** seeding. |
 
 ---
 
