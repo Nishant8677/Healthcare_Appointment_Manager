@@ -254,6 +254,20 @@ patients at one slot and asserts exactly one `201`, nineteen `409`, no `500`, an
 occupying row in the database. Full reasoning in
 [ADR 0004](docs/adr/0004-booking-and-double-booking-prevention.md).
 
+### What is verified against real providers
+
+Everything in this project was exercised against the real thing rather than a mock, and the
+table says which — because "it matches the provider's documentation" turned out to be worth
+less than expected: two Google documentation pages disagreed about a request shape, and the
+one in the API reference returns `400`.
+
+| Integration | Verified | Notes |
+| --- | --- | --- |
+| PostgreSQL | ✅ | All 369 backend tests run against a real database, never SQLite |
+| **AI summaries** | ✅ Gemini | Real briefs and patient summaries. Survived a genuine `500` and a `429` quota limit, retrying to success |
+| **Email** | ✅ SendGrid | Delivered to a real inbox — see the spam caveat in [deployment.md](docs/deployment.md) |
+| Google Calendar | ⚠️ partly | Reconciler and failure paths verified; a real OAuth consent needs a Google Cloud project |
+
 ### Notifications that survive an outage
 
 Booking never sends email. It writes the message as a row in the **same transaction** as the

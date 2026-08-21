@@ -158,6 +158,16 @@ falling back to the stub and serving canned text as though it were a clinical su
 Cost is small: two calls per appointment, a few hundred output tokens each. Note that Gemini's
 flash model reasons by default, so its token usage is higher than the visible answer suggests.
 
+**On the free tier's daily cap.** Gemini's free tier has a requests-per-day limit that resets
+at midnight Pacific, and Google does not publish the number — check yours at
+[AI Studio](https://aistudio.google.com/rate-limit). Normal demo use is nowhere near it (two
+calls per appointment), but sustained testing will exhaust it.
+
+When it happens the system behaves correctly rather than breaking, which was verified against
+a real `429`: the summary is retried with growing backoff, the row stays `pending` with an
+honest reason, and the appointment and its emails are entirely unaffected. The admin portal's
+requeue button forces an immediate retry once quota is back.
+
 ### SendGrid, for real email
 
 Without this, every message is written to the log instead of being sent — visible in Render's
@@ -172,6 +182,20 @@ log stream, which is enough to demonstrate the outbox working.
 **The seeded patients use `@example.com` addresses**, which is a reserved domain that accepts
 nothing. Real delivery therefore needs real accounts — register one through the portal with an
 address you own.
+
+**Sender verification, and where the mail lands.** SendGrid's onboarding pushes *domain*
+authentication, which needs DNS records for a domain you own. The alternative is
+[Single Sender Verification](https://app.sendgrid.com/settings/sender_auth) — one address, a
+confirmation click, no domain.
+
+It works, with a caveat worth stating plainly because it was measured rather than assumed:
+mail sent *from* a free-mail address (gmail.com, outlook.com) through a third party fails the
+DMARC check those providers publish, so **it reliably lands in spam**. Verified end to end —
+SendGrid accepted the message, the outbox marked it `sent`, and it arrived in the recipient's
+spam folder.
+
+That is a deliverability limit of the sending identity, not of this application. A verified
+domain fixes it; nothing in the code changes.
 
 ### Google Calendar
 
