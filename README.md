@@ -7,10 +7,18 @@ and describe their symptoms up front; the doctor gets an AI-generated pre-visit 
 urgency level; after the visit the patient gets a plain-language summary with a medication
 schedule. Both sides stay informed through email and Google Calendar.
 
-> **Status: complete.** Three portals over a backend with proven double-booking prevention,
-> a transactional notification outbox, the doctor-leave cascade, AI summaries that degrade
-> safely when the model is unavailable, and Google Calendar sync built as a desired-state
-> reconciler. Deployable from [`render.yaml`](render.yaml), with one command for demo data.
+> **Status: complete and deployed.** Three portals over a backend with proven double-booking
+> prevention, a transactional notification outbox, the doctor-leave cascade, AI summaries that
+> degrade safely when the model is unavailable, and Google Calendar sync built as a
+> desired-state reconciler.
+
+**[Live demo](https://ham-web.onrender.com)** · [API documentation](https://ham-api-czwz.onrender.com/docs)
+
+The demo runs on free tiers, so the first request after fifteen minutes idle takes 30–60
+seconds while the instance and its database wake up. Everything after that is normal. Sign in
+as `admin@clinic.demo`, `nikhil.bose@clinic.demo` (doctor) or `meera.iyer@example.com`
+(patient) to see each portal — the clinic is pre-populated with appointments in every state,
+all of it produced by the system's own services rather than inserted directly.
 
 ## Where everything is
 
@@ -265,10 +273,10 @@ one in the API reference returns `400`.
 
 | Integration | Verified | Notes |
 | --- | --- | --- |
-| PostgreSQL | ✅ | All 369 backend tests run against a real database, never SQLite |
+| PostgreSQL | ✅ | All 372 backend tests run against a real database, never SQLite |
 | **AI summaries** | ✅ Gemini | Real briefs and patient summaries. Survived a genuine `500` and a `429` quota limit, retrying to success |
 | **Email** | ✅ SendGrid | Delivered to a real inbox — see the spam caveat in [deployment.md](docs/deployment.md) |
-| Google Calendar | ⚠️ partly | Reconciler and failure paths verified; a real OAuth consent needs a Google Cloud project |
+| **Google Calendar** | ✅ | Full OAuth consent against a real Google account, then the whole lifecycle on a real calendar: connect backfilled one appointment, a reschedule issued `PUT` on the same event id and moved the entry rather than duplicating it, and cancelling issued `DELETE` — `204`, confirmed gone in the account itself |
 
 ### Notifications that survive an outage
 
@@ -476,12 +484,19 @@ uv run ruff check . && uv run ruff format .
 uv run mypy
 ```
 
-Install the pre-commit hooks once, from the repository root, to run linting and a
+Install the pre-commit hooks once, from the repository root, to run formatting, linting and a
 committed-secret check automatically:
 
 ```bash
 pre-commit install
 ```
+
+Everything above also runs in [CI](.github/workflows/ci.yml) on every push and pull request —
+ruff, `mypy` over `src` *and* `tests`, the full pytest suite against a real PostgreSQL service
+container, and the frontend's lint, typecheck, tests and production build. The backend
+installs with `pip install uv && uv sync --frozen`, the same command
+[`render.yaml`](render.yaml) uses, so the pipeline exercises the deployment's install path
+rather than an approximation of it.
 
 Tests run against a real PostgreSQL database rather than SQLite. The concurrency guarantees
 this project is judged on depend on Postgres row locking and partial unique indexes, so a
@@ -497,7 +512,7 @@ npm test && npm run typecheck && npm run lint
 npm run build
 ```
 
-**400 tests in total** — 342 backend, 58 frontend.
+**430 tests in total** — 372 backend, 58 frontend.
 
 ---
 
