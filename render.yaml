@@ -25,6 +25,12 @@ services:
     # `uv sync --frozen` installs exactly what uv.lock pins. Without `--frozen` a resolver
     # difference between this machine and the build container could quietly ship different
     # versions than the ones the tests ran against.
+    #
+    # The interpreter is pinned by backend/.python-version, not here: Render's default Python
+    # moves forward with time (3.14 at the time of writing) and the test suite runs on 3.11.
+    # The lock is universal so it would probably resolve either way, but "probably" is doing
+    # too much work when the failure mode is a C extension with no wheel for the container's
+    # version, building from source in a deploy log nobody is watching.
     buildCommand: pip install uv && uv sync --frozen
     # Migrations run before the server starts, so a schema change that fails takes the deploy
     # down rather than leaving a running API talking to a database it does not match.
@@ -74,6 +80,11 @@ services:
     buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
     envVars:
+      # Render's default Node tracks forward over time, so a build that works today can break
+      # on a container it was never tested against. A major-version range keeps patches
+      # flowing without crossing a major.
+      - key: NODE_VERSION
+        value: "24"
       # Set after the first deploy, to the API's URL, then redeploy — this is read at *build*
       # time and baked into the bundle, so changing it needs a rebuild rather than a restart.
       - key: VITE_API_BASE_URL
