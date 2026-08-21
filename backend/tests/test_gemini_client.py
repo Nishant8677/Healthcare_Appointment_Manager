@@ -311,6 +311,36 @@ async def test_provider_side_failures_are_retryable(status_code: int) -> None:
         await generate(client)
 
 
+async def test_an_error_wrapped_in_an_array_still_reports_its_message() -> None:
+    """The live endpoint returns `[{"error": {...}}]`, not the bare object its own reference
+    documents. Captured from a real 400: without unwrapping the array every failure reads
+    "unknown error", losing the one message that says what to fix."""
+    client, _ = client_returning(
+        [
+            {
+                "error": {
+                    "code": 400,
+                    "message": "API key not valid. Please pass a valid API key.",
+                    "status": "INVALID_ARGUMENT",
+                }
+            }
+        ],
+        status_code=400,
+    )
+
+    with pytest.raises(LLMError, match="API key not valid"):
+        await generate(client)
+
+
+async def test_an_unrecognised_error_shape_does_not_crash() -> None:
+    """Falling back to a vague message is acceptable; raising something other than LLMError
+    from the error path is not, because it escapes the worker's retry handling."""
+    client, _ = client_returning([["unexpected"]], status_code=400)
+
+    with pytest.raises(LLMError, match="unknown error"):
+        await generate(client)
+
+
 async def test_a_network_failure_is_retryable() -> None:
     def explode(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")

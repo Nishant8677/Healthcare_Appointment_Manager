@@ -359,11 +359,19 @@ def _parse_output(body: dict[str, Any], output_model: type[OutputT]) -> OutputT:
 
 
 def _gemini_error(response: httpx.Response) -> str:
-    """Google's short message, never the whole body."""
+    """Google's short message, never the whole body.
+
+    This endpoint wraps its errors in a single-element *array* — `[{"error": {...}}]` — rather
+    than returning the bare object its own reference documents. Unwrapping that is not
+    cosmetic: without it every failure reads "unknown error", including the one that matters
+    most, an invalid API key at deploy time, whose real message names the problem outright.
+    """
     try:
         payload = response.json()
     except ValueError:
         return "unparseable error response"
+    if isinstance(payload, list):
+        payload = next((item for item in payload if isinstance(item, dict)), None)
     if isinstance(payload, dict):
         error = payload.get("error")
         if isinstance(error, dict):
