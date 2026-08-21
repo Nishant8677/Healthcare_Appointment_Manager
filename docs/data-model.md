@@ -52,8 +52,6 @@ erDiagram
         timestamp ends_at
         enum      status
         timestamp hold_expires_at
-        string    patient_calendar_event_id
-        string    doctor_calendar_event_id
     }
     symptom_reports {
         uuid appointment_id UK

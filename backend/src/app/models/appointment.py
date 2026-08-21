@@ -71,11 +71,6 @@ class Appointment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancellation_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    # Google Calendar event ids, stored so a reschedule or cancellation can update and
-    # delete the right events rather than orphaning them (Phase 7).
-    patient_calendar_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    doctor_calendar_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-
     __table_args__ = (
         Index(
             "uq_appointments_doctor_occupied_slot",
