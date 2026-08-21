@@ -438,23 +438,23 @@ seven-day testing-mode caveat — is in
 
 ## Deployment
 
-Everything is described by [`render.yaml`](render.yaml): a PostgreSQL database, the API (which
-also runs the three background workers), and the portals as a static site. One provider, one
-dashboard, one deploy log.
+[`render.yaml`](render.yaml) describes the API (which also runs the three background workers)
+and the portals as a static site. The database is deliberately not in it: a free Render
+Postgres is deleted 30 days after creation and a workspace may only have one, so it is an
+external managed Postgres instead — [Neon's](https://neon.com) free tier does not expire.
 
 ```bash
 gh repo create Healthcare_Appointment_Manager --public --source=. --remote=origin --push
 ```
 
-Then **New → Blueprint** in Render, pointed at the repository. Two values have to be set after
-the first deploy, because neither URL exists until Render has created the services: the API's
-`CORS_ORIGINS` (the portals' URL) and the portals' `VITE_API_BASE_URL` (the API's URL). Full
-steps, the optional integrations, and how to deploy somewhere else:
-[docs/deployment.md](docs/deployment.md).
+Then **New → Blueprint** in Render, pointed at the repository. `DATABASE_URL` is set at
+creation; the other two have to wait until after the first deploy, because neither URL exists
+until Render has created the services: the API's `CORS_ORIGINS` (the portals' URL) and the
+portals' `VITE_API_BASE_URL` (the API's URL). Full steps, the optional integrations, and how
+to deploy somewhere else: [docs/deployment.md](docs/deployment.md).
 
-Two things about free tiers, so nothing looks broken that is not: the API sleeps after 15
-minutes of inactivity and takes 30–60 seconds to wake, and a free Render database is deleted
-after 30 days.
+One free-tier behaviour, so nothing looks broken that is not: the API sleeps after 15 minutes
+of inactivity and takes 30–60 seconds to wake, with the database waking alongside it.
 
 ---
 

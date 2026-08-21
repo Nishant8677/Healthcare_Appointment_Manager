@@ -1,17 +1,25 @@
 # Deployment
 
-Everything is described by [`render.yaml`](../render.yaml) at the repository root: a
-PostgreSQL database, the API (which also runs the three background workers), and the portals
-as a static site. One provider, one dashboard, one deploy log.
+[`render.yaml`](../render.yaml) at the repository root describes the API (which also runs the
+three background workers) and the portals as a static site. The database is **not** in it, for
+reasons worth understanding before you reach for Render's own:
 
-Free tiers throughout, which is fine for a demo and has two consequences worth knowing before
-you conclude something is broken:
+- **A free Render Postgres is deleted 30 days after creation.** Fine for a demo you will
+  show this week; a broken link if you have put the URL on a CV that people open next term.
+- **A workspace may only have one free Postgres at a time.** If you already have one from
+  another project, the blueprint cannot create a second, and the API fails behind it.
+
+So the database is an external managed Postgres. [Neon's](https://neon.com) free tier has no
+expiry — it suspends after five minutes idle and wakes on the next connection. Nothing in the
+application changes either way: the connection string is normalised to the async driver on the
+way in, so a `postgresql://…` URL from any provider is pasted in as-is.
+
+One more free-tier behaviour worth knowing before you conclude something is broken:
 
 - **The API sleeps after 15 minutes of inactivity.** The first request after that takes
-  roughly 30–60 seconds while the container starts. Subsequent requests are normal. If you
-  are sending someone a link, open it yourself a minute beforehand.
-- **A free Render database is deleted after 30 days.** For a submission that is usually
-  longer than it needs to live, but note the date.
+  roughly 30–60 seconds while the container starts, and the database takes a few seconds to
+  wake alongside it. Subsequent requests are normal. If you are sending someone a link, open
+  it yourself a minute beforehand.
 
 ---
 
@@ -23,21 +31,38 @@ Render deploys from GitHub, so the repository has to be there first, on `main` a
 gh repo create Healthcare_Appointment_Manager --public --source=. --remote=origin --push
 ```
 
-## 2. Create the blueprint
+## 2. Create the database
+
+At [neon.com](https://neon.com): sign up, create a project, and copy the connection string it
+shows you. It looks like:
+
+```
+postgresql://user:password@ep-something.region.aws.neon.tech/dbname?sslmode=require
+```
+
+Keep it to hand — step 3 needs it, and it carries a password, so it does not belong in the
+repository or in a chat window.
+
+## 3. Create the blueprint
 
 In the [Render dashboard](https://dashboard.render.com/): **New → Blueprint**, connect the
 repository, and Render reads `render.yaml`.
 
-It will ask for the two values marked `sync: false`. **Leave both blank for now** — neither
-URL exists yet. Click through and let it build.
+It asks for the three values marked `sync: false`:
 
-This creates three things: `ham-postgres`, `ham-api` and `ham-web`. The first build takes a
-few minutes.
+| Variable | What to enter now |
+| --- | --- |
+| `DATABASE_URL` | the Neon connection string from step 2 |
+| `CORS_ORIGINS` | **leave blank** — the URL does not exist yet |
+| `VITE_API_BASE_URL` | **leave blank** — same |
 
-## 3. Wire the two services together
+Click through and let it build. This creates `ham-api` and `ham-web`; the first build takes a
+few minutes. Migrations run from the start command, so the schema is created on first boot.
+
+## 4. Wire the two services together
 
 The API needs the portals' URL to allow their requests; the portals need the API's URL to
-send them. Neither exists until step 2 finishes, which is why this is separate.
+send them. Neither exists until step 3 finishes, which is why this is separate.
 
 Copy both URLs from the dashboard — they look like `https://ham-api.onrender.com` and
 `https://ham-web.onrender.com`.
@@ -62,7 +87,7 @@ saving it restarts `ham-api` on its own.
 > console will say the response was blocked by CORS, or the network tab will show requests
 > going to `localhost:8000`.
 
-## 4. Create the demo data
+## 5. Create the demo data
 
 The seed builds a clinic that already looks lived-in: three doctors with different
 specialisations and hours, three patients, and appointments in every state — one upcoming with
@@ -71,19 +96,18 @@ clinic cancelled because a doctor took leave. All of it is created through the r
 so what you are looking at is the system's own output.
 
 **Render's free instance type has no shell** — neither the dashboard shell nor SSH, both are
-paid-only. So the seed is run from your own machine against the deployed database, which works
-because a free Render Postgres still publishes an **external URL**.
+paid-only. So the seed is run from your own machine against the deployed database. That is
+straightforward here, because the database is external: it is the same connection string
+Render uses, reachable from anywhere.
 
-Copy it from the `ham-postgres` **Info** page — the field is *External Database URL* — and run
-the seed locally:
+From `backend/`, with the Neon URL from step 2:
 
 ```bash
-DATABASE_URL='<the external URL>' DEMO_PASSWORD='choose-a-password' uv run python -m app.cli seed-demo
+DATABASE_URL='<the Neon connection string>' DEMO_PASSWORD='choose-a-password' uv run python -m app.cli seed-demo
 ```
 
-Run it from `backend/`. The URL is normalised to the async driver on the way in, so Render's
-`postgresql://…` string is pasted as-is. External connections traverse the public internet and
-are slower than Render's internal ones, which is irrelevant for a one-off seed.
+Connecting across the public internet is slower than an in-region connection, which is
+irrelevant for a one-off seed.
 
 It prints the accounts it created. **Record the password** — it is stored nowhere else, and
 there is deliberately none in the repository.
@@ -110,7 +134,7 @@ DATABASE_URL='<the external URL>' ADMIN_PASSWORD='choose-a-password' \
   uv run python -m app.cli create-admin --email you@example.com --name "Your Name"
 ```
 
-## 5. Check it
+## 6. Check it
 
 ```bash
 curl https://ham-api.onrender.com/healthz
