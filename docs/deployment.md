@@ -70,11 +70,20 @@ a symptom form, one completed with a prescription and its medication reminders, 
 clinic cancelled because a doctor took leave. All of it is created through the real services,
 so what you are looking at is the system's own output.
 
-On `ham-api` → **Shell**:
+**Render's free instance type has no shell** — neither the dashboard shell nor SSH, both are
+paid-only. So the seed is run from your own machine against the deployed database, which works
+because a free Render Postgres still publishes an **external URL**.
+
+Copy it from the `ham-postgres` **Info** page — the field is *External Database URL* — and run
+the seed locally:
 
 ```bash
-DEMO_PASSWORD='choose-a-password' uv run python -m app.cli seed-demo
+DATABASE_URL='<the external URL>' DEMO_PASSWORD='choose-a-password' uv run python -m app.cli seed-demo
 ```
+
+Run it from `backend/`. The URL is normalised to the async driver on the way in, so Render's
+`postgresql://…` string is pasted as-is. External connections traverse the public internet and
+are slower than Render's internal ones, which is irrelevant for a one-off seed.
 
 It prints the accounts it created. **Record the password** — it is stored nowhere else, and
 there is deliberately none in the repository.
@@ -97,8 +106,8 @@ Running it twice is harmless — it reports that it is already seeded and change
 If you would rather start from an empty clinic, create only an administrator:
 
 ```bash
-ADMIN_PASSWORD='choose-a-password' uv run python -m app.cli create-admin \
-  --email you@example.com --name "Your Name"
+DATABASE_URL='<the external URL>' ADMIN_PASSWORD='choose-a-password' \
+  uv run python -m app.cli create-admin --email you@example.com --name "Your Name"
 ```
 
 ## 5. Check it
@@ -141,10 +150,13 @@ Leave `LLM_MODEL` unset — each provider resolves to its own default (`gemini-3
 `claude-opus-5`). Setting it to a model the other provider owns is the one configuration
 mistake this cannot catch for you.
 
-Then confirm it from the Render shell, rather than by booking an appointment to find out:
+Then confirm the key works, rather than by booking an appointment to find out. `check-llm`
+opens no database connection, so it runs locally against the same key you pasted into Render —
+from `backend/`, where your `.env` already supplies the settings that are required to exist
+even though this command never uses them:
 
 ```bash
-uv run python -m app.cli check-llm
+LLM_PROVIDER=gemini LLM_API_KEY='<the key>' uv run python -m app.cli check-llm
 ```
 
 That sends one real request through the whole path — settings, client selection, the request
